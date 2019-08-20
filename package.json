@@ -26,7 +26,7 @@
     "cli-ux": "^5.2.1",
     "command-exists": "^1.2.8",
     "eclipse-che": "git://github.com/eclipse/che#master",
-    "eclipse-che-minishift": "git://github.com/minishift/minishift#master",
+    "eclipse-che-minishift": "git://github.com/sleshchenko/minishift#labelsAlignment",
     "eclipse-che-operator": "git://github.com/eclipse/che-operator#master",
     "esprima": "^4.0.1",
     "execa": "^1.0.0",
@@ -37,6 +37,7 @@
     "mkdirp": "^0.5.1",
     "ncp": "^2.0.0",
     "node-notifier": "^5.4.0",
+    "openshift-rest-client": "^v2.2.0",
     "tslib": "^1"
   },
   "devDependencies": {

@@ -91,7 +91,7 @@ export default class Start extends Command {
         enabled: () => flags.devfile !== undefined,
         task: async (ctx: any) => {
           await this.checkToken(flags, ctx)
-          ctx.workspaceIdeURL = await che.createWorkspaceFromDevfile(flags.chenamespace, flags.devfile, flags.name, flags['access-token'])
+          ctx.workspaceIdeURL = await che.createWorkspaceFromDevfile(ctx.cheURL, flags.devfile, flags.name, flags['access-token'])
         }
       },
       {
@@ -99,7 +99,7 @@ export default class Start extends Command {
         enabled: () => flags.workspaceconfig !== undefined,
         task: async (ctx: any) => {
           await this.checkToken(flags, ctx)
-          ctx.workspaceIdeURL = await che.createWorkspaceFromWorkspaceConfig(flags.chenamespace, flags.workspaceconfig, flags['access-token'])
+          ctx.workspaceIdeURL = await che.createWorkspaceFromWorkspaceConfig(ctx.cheURL, flags.workspaceconfig, flags['access-token'])
         }
       },
     ], { renderer: flags['listr-renderer'] as any })

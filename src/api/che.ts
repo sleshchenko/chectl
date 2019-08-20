@@ -27,6 +27,10 @@ export class CheHelper {
   kube = new KubeHelper()
   oc = new OpenShiftHelper()
 
+  findDeployment() {
+    throw new Error("Method not implemented.");
+  }
+
   async cheServerPodExist(namespace: string): Promise<boolean> {
     const kc = new KubeConfig()
     kc.loadFromDefault()
@@ -100,6 +104,11 @@ export class CheHelper {
     }
   }
 
+  /**
+   * Returns Che URL or throw an exception if it does not exist(namespace or ingress/route does not exist).
+   * 
+   * @param namespace namespace where to search ingress/route
+   */
   async cheURL(namespace = ''): Promise<string> {
     if (!await this.cheNamespaceExist(namespace)) {
       throw new Error(`ERR_NAMESPACE_NO_EXIST - No namespace ${namespace} is found`)
@@ -112,7 +121,25 @@ export class CheHelper {
     }
   }
 
-  async cheK8sURL(namespace = ''): Promise<string> {
+  /**
+   * Returns Che URL or undefined if it does not exist(namespace or ingress/route does not exist).
+   * 
+   * @param namespace namespace where to search ingress/route
+   */
+  async findCheURL(namespace = ''): Promise<string|undefined> {
+    if (!await this.cheNamespaceExist(namespace)) {
+      return
+    }
+
+    const kube = new KubeHelper()
+    if (await kube.isOpenShift()) {
+      return this.findCheOpenShiftURL(namespace)
+    } else {
+      return this.findCheK8sURL(namespace)
+    }
+  }
+
+  private async cheK8sURL(namespace = ''): Promise<string> {
     const ingress_names = ['che', 'che-ingress']
     for (const ingress_name of ingress_names) {
       if (await this.kube.ingressExist(ingress_name, namespace)) {
@@ -124,16 +151,38 @@ export class CheHelper {
     throw new Error(`ERR_INGRESS_NO_EXIST - No ingress ${ingress_names} in namespace ${namespace}`)
   }
 
-  async cheOpenShiftURL(namespace = ''): Promise<string> {
-    const route_names = ['che', 'che-host']
-    for (const route_name of route_names) {
-      if (await this.oc.routeExist(route_name, namespace)) {
-        const protocol = await this.oc.getRouteProtocol(route_name, namespace)
-        const hostname = await this.oc.getRouteHost(route_name, namespace)
+  private async findCheK8sURL(namespace = ''): Promise<string|undefined> {
+    const kube = new KubeHelper()
+    const ingress_names = ['che', 'che-ingress']
+    for (const ingress_name of ingress_names) {
+      if (await kube.ingressExist(ingress_name, namespace)) {
+        const protocol = await kube.getIngressProtocol(ingress_name, namespace)
+        const hostname = await kube.getIngressHost(ingress_name, namespace)
         return `${protocol}://${hostname}`
       }
     }
+    return
+  }
+
+  private async cheOpenShiftURL(namespace = ''): Promise<string> {
+    const route_names = ['che', 'che-host']
+    for (const route_name of route_names) {
+      if (await this.oc.routeExist(route_name, namespace)) {
+        return this.oc.getRouteURL(route_name, namespace)
+      }
+    }
     throw new Error(`ERR_ROUTE_NO_EXIST - No route ${route_names} in namespace ${namespace}`)
+  }
+
+  private async findCheOpenShiftURL(namespace = ''): Promise<string|undefined> {
+    const oc = new OpenShiftHelper()
+    const route_names = ['che', 'che-host']
+    for (const route_name of route_names) {
+      if (await oc.routeExist(route_name, namespace)) {
+        return this.oc.getRouteURL(route_name, namespace)
+      }
+    }
+    return
   }
 
   async cheNamespaceExist(namespace = '') {
@@ -198,6 +247,15 @@ export class CheHelper {
   }
 
   async isCheServerReady(cheURL: string, responseTimeoutMs = this.defaultCheResponseTimeoutMs): Promise<boolean> {
+    try {
+      await axios.get(`${cheURL}/api/system/state`, { timeout: responseTimeoutMs })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async waitCheServerReady(cheURL: string, responseTimeoutMs = this.defaultCheResponseTimeoutMs): Promise<boolean> {
     const id = await axios.interceptors.response.use(response => response, async (error: any) => {
       if (error.config && error.response && (error.response.status === 404 || error.response.status === 503)) {
         return axios.request(error.config)
@@ -215,12 +273,8 @@ export class CheHelper {
     }
   }
 
-  async createWorkspaceFromDevfile(namespace: string | undefined, devfilePath = '', workspaceName: string | undefined, accessToken = ''): Promise<string> {
-    if (!await this.cheNamespaceExist(namespace)) {
-      throw new Error('E_BAD_NS')
-    }
-    let url = await this.cheURL(namespace)
-    let endpoint = `${url}/api/workspace/devfile`
+  async createWorkspaceFromDevfile(cheURL: string, devfilePath = '', workspaceName: string | undefined, accessToken = ''): Promise<string> {
+    let endpoint = `${cheURL}/api/workspace/devfile`
     let devfile
     let response
     const headers: any = { 'Content-Type': 'text/yaml' }
@@ -260,12 +314,8 @@ export class CheHelper {
     }
   }
 
-  async createWorkspaceFromWorkspaceConfig(namespace: string | undefined, workspaceConfigPath = '', accessToken = ''): Promise<string> {
-    if (!await this.cheNamespaceExist(namespace)) {
-      throw new Error('E_BAD_NS')
-    }
-    let url = await this.cheURL(namespace)
-    let endpoint = `${url}/api/workspace`
+  async createWorkspaceFromWorkspaceConfig(cheURL: string | undefined, workspaceConfigPath = '', accessToken = ''): Promise<string> {
+    let endpoint = `${cheURL}/api/workspace`
     let workspaceConfig
     let response
     const headers: any = { 'Content-Type': 'application/json' }

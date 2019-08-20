@@ -12,40 +12,55 @@
 import execa = require('execa')
 
 export class OpenShiftHelper {
+  oc = require('openshift-rest-client').OpenshiftClient;
+
   async status(): Promise<boolean> {
     const command = 'oc'
     const args = ['status']
     const { code } = await execa(command, args, { timeout: 60000, reject: false })
     if (code === 0) { return true } else { return false }
   }
-  async getRouteHost(name: string, namespace = ''): Promise<string> {
-    const command = 'oc'
-    const args = ['get', 'route', '--namespace', namespace, '-o', `jsonpath={range.items[?(.metadata.name=='${name}')]}{.spec.host}{end}`]
-    const { stdout } = await execa(command, args, { timeout: 60000 })
-    return stdout.trim()
-  }
-  async getRouteProtocol(name: string, namespace = ''): Promise<string> {
-    const command = 'oc'
-    const args = ['get', 'route', '--namespace', namespace, '-o', `jsonpath={range.items[?(.metadata.name=='${name}')]}{.spec.tls.termination}{end}`]
-    const { stdout } = await execa(command, args, { timeout: 60000 })
-    const termination = stdout.trim()
-    if (termination && termination.includes('edge') || termination.includes('passthrough') || termination.includes('reencrypt')) {
-      return 'https'
-    } else {
-      return 'http'
+
+  async getRouteURL(name: string, namespace = ''): Promise<string> {
+    try {
+      const client = await this.oc()
+      const response = await client.apis['route'].v1.namespaces(namespace).routes(name).get()
+      const route = response.body
+      const tls = route.spec.tls
+      if (tls && tls.termination && (tls.termination.includes('edge') || tls.termination.includes('passthrough') || tls.termination.includes('reencrypt'))) {
+        return `https://${route.spec.host}`
+      } else {
+        return `http://${route.spec.host}`
+      }
+    } catch (e) {
+      if (e.statusCode == 404) {
+        throw new Error(`ERR_ROUTE_NO_EXIST - No route ${name} in namespace ${namespace}`)
+      }
+      if (e.body && e.body.message) throw new Error(e.body.message)
+      else throw new Error(e)
     }
   }
+
   async routeExist(name: string, namespace = ''): Promise<boolean> {
-    const command = 'oc'
-    const args = ['get', 'route', '--namespace', namespace, '-o', `jsonpath={range.items[?(.metadata.name=='${name}')]}{.metadata.name}{end}`]
-    const { stdout } = await execa(command, args, { timeout: 60000 })
-    return stdout.trim().includes(name)
+    try {
+      const client = await this.oc()
+      await client.apis['route'].v1.namespaces(namespace).routes(name).get()
+      return true
+    } catch (e) {
+      if (e.statusCode == 404) {
+        return false
+      }
+      if (e.body && e.body.message) throw new Error(e.body.message)
+      else throw new Error(e)
+    }
   }
+
   async deleteAllRoutes(namespace = '') {
     const command = 'oc'
     const args = ['delete', 'route', '--all', '--namespace', namespace]
     await execa(command, args, { timeout: 60000 })
   }
+
   async deploymentConfigExist(name = '', namespace = ''): Promise<boolean> {
     const command = 'oc'
     const args = ['get', 'deploymentconfig', '--namespace', namespace, '-o', `jsonpath={range.items[?(.metadata.name=='${name}')]}{.metadata.name}{end}`]

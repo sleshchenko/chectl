@@ -18,6 +18,7 @@ import * as path from 'path'
 
 import { CheHelper } from '../../api/che'
 import { KubeHelper } from '../../api/kube'
+import { OpenShiftHelper } from '../../api/openshift'
 import { HelmHelper } from '../../installers/helm'
 import { MinishiftAddonHelper } from '../../installers/minishift-addon'
 import { OperatorHelper } from '../../installers/operator'
@@ -26,7 +27,7 @@ import { K8sHelper } from '../../platforms/k8s'
 import { MicroK8sHelper } from '../../platforms/microk8s'
 import { MinikubeHelper } from '../../platforms/minikube'
 import { MinishiftHelper } from '../../platforms/minishift'
-import { OpenshiftHelper } from '../../platforms/openshift'
+import { OpenshiftHelper as OpenShiftPlatform } from '../../platforms/openshift'
 
 let kube: KubeHelper
 export default class Start extends Command {
@@ -79,10 +80,20 @@ export default class Start extends Command {
       description: 'Listr renderer. Can be \'default\', \'silent\' or \'verbose\'',
       default: 'default'
     }),
+    'deployment-name': string({
+      description: 'Che deployment name',
+      default: 'che',
+      env: 'CHE_DEPLOYMENT'
+    }),
     multiuser: flags.boolean({
       char: 'm',
       description: 'Starts che in multi-user mode',
       default: false
+    }),
+    'che-selector': string({
+      description: 'Selector for Che Server resources',
+      default: 'app=che,component=che',
+      env: 'CHE_SELECTOR'
     }),
     tls: flags.boolean({
       char: 's',
@@ -171,7 +182,8 @@ export default class Start extends Command {
     const minikube = new MinikubeHelper()
     const microk8s = new MicroK8sHelper()
     const minishift = new MinishiftHelper()
-    const openshift = new OpenshiftHelper()
+    const openshift = new OpenShiftPlatform()
+    const oc = new OpenShiftHelper()
     const k8s = new K8sHelper()
     const dockerDesktop = new DockerDesktopHelper()
     const helm = new HelmHelper()
@@ -237,6 +249,213 @@ export default class Start extends Command {
       this.exit()
     }
 
+    let cheExistenceTasks = new Listr(undefined, { renderer: flags['listr-renderer'] as any, collapse: false })
+    let globalCtx: any = {};
+
+    cheExistenceTasks.add({
+      title: 'Check if Che is already deployed',
+      task: () => new Listr([
+        {
+          title: 'Verify Kubernetes API',
+          task: async (_ctx: any, task: any) => {
+            try {
+              await kube.checkKubeApi()
+              globalCtx.isOpenShift = await kube.isOpenShift()
+              task.title = await `${task.title}...done`
+              if (globalCtx.isOpenShift) {
+                task.title = await `${task.title} (it's OpenShift)`
+              }
+            } catch (error) {
+              this.error(`Failed to connect to Kubernetes API. ${error.message}`)
+            }
+          }
+        },
+        {
+          title: `Verify if deployment \"${flags['deployment-name']}\" exist in namespace \"${flags.chenamespace}\"`,
+          task: async (_ctx: any, task: any) => {
+            if (globalCtx.isOpenShift && await oc.deploymentConfigExist(flags['deployment-name'], flags.chenamespace)) {
+              // minishift addon and the openshift templates use a deployment config
+              globalCtx.cheServerIsDeployed = true
+              globalCtx.deploymentConfigExist = true
+              globalCtx.foundKeycloakDeployment = await oc.deploymentConfigExist('keycloak', flags.chenamespace)
+              globalCtx.foundPostgresDeployment = await oc.deploymentConfigExist('postgres', flags.chenamespace)
+              globalCtx.foundDevfileRegistryDeployment = await kube.deploymentExist('devfile-registry', flags.chenamespace)
+              globalCtx.foundPluginRegistryDeployment = await kube.deploymentExist('plugin-registry', flags.chenamespace)
+              
+              let deployedDeployments = this.getDeployedDeployments(globalCtx)
+              if (deployedDeployments) {
+                task.title = await `${task.title}...the dc "${flags['deployment-name']}" exists (as well as ${deployedDeployments})`
+              } else {
+                task.title = await `${task.title}...the dc "${flags['deployment-name']}" exists`
+              }
+            } else if (await kube.deploymentExist(flags['deployment-name'], flags.chenamespace)) {
+              // helm chart and Che operator use a deployment
+              globalCtx.cheServerIsDeployed = true
+              globalCtx.foundKeycloakDeployment = await kube.deploymentExist('keycloak', flags.chenamespace)
+              globalCtx.foundPostgresDeployment = await kube.deploymentExist('postgres', flags.chenamespace)
+              globalCtx.foundDevfileRegistryDeployment = await kube.deploymentExist('devfile-registry', flags.chenamespace)
+              globalCtx.foundPluginRegistryDeployment = await kube.deploymentExist('plugin-registry', flags.chenamespace)
+
+              let deployedDeployments = this.getDeployedDeployments(globalCtx)
+              if (deployedDeployments) {
+                task.title = await `${task.title}...it does (as well as ${deployedDeployments})`
+              } else {
+                task.title = await `${task.title}...it does`
+              }
+            } else {
+              globalCtx.cheServerIsDeployed = false
+              task.title = await `${task.title}...is not deployed at yet`
+            }
+          }
+        },
+        {
+          title: 'Checking if Che endpoints are available',
+          enabled: () => globalCtx.cheServerIsDeployed,
+          task: async (_ctx: any, task: any) => {
+            globalCtx.cheURL = await che.cheURL(flags.chenamespace)
+            if (await che.isCheServerReady(globalCtx.cheURL)) {
+              task.title = await `${task.title}...AVAILABLE`
+              globalCtx.cheServerIsReady = true
+            } else {
+              task.title = await `${task.title}...NOT AVAILABLE`
+              globalCtx.cheServerIsReady = false
+            }
+          }
+        }
+      ],
+        { renderer: flags['listr-renderer'] as any, collapse: false }
+      )
+    })
+
+    let recoverCheTask = new Listr({ renderer: flags['listr-renderer'] as any, collapse: false })
+    recoverCheTask.add({
+      title: 'Recover Che Server',
+      task: () => new Listr([
+       {
+          title: 'Scale \"devfile registry\"  deployment to one',
+          enabled: (ctx: any) => ctx.foundDevfileRegistryDeployment,
+          task: async (_ctx: any, task: any) => {
+            try {
+              if (globalCtx.deploymentConfigExist) {
+                await oc.scaleDeploymentConfig('devfile-registry', flags.chenamespace, 1)
+              } else {
+                await kube.scaleDeployment('devfile-registry', flags.chenamespace, 1)
+              }
+              task.title = await `${task.title}...done`
+            } catch (error) {
+              this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale devfile-registry deployment. ${error.message}`)
+            }
+          }
+        },
+        {
+          title: 'Wait until Devfile registry pod is scaled',
+          enabled: (ctx: any) => ctx.foundDevfileRegistryDeployment,
+          task: async (_ctx: any, task: any) => {
+            await kube.waitUntilPodIsDeployed('app=che,component=devfile-registry', flags.chenamespace)
+            task.title = `${task.title}...done.`
+          }
+        },
+        {
+          title: 'Scale \"plugin registry\"  deployment to one',
+          enabled: (_ctx: any) => globalCtx.foundPluginRegistryDeployment,
+          task: async (_ctx: any, task: any) => {
+            try {
+              if (globalCtx.deploymentConfigExist) {
+                await oc.scaleDeploymentConfig('plugin-registry', flags.chenamespace, 1)
+              } else {
+                await kube.scaleDeployment('plugin-registry', flags.chenamespace, 1)
+              }
+              task.title = await `${task.title}...done`
+            } catch (error) {
+              this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale plugin-registry deployment. ${error.message}`)
+            }
+          }
+        },
+        {
+          title: 'Wait until Plugin registry pod is scaled',
+          enabled: (_ctx: any) => globalCtx.foundPluginRegistryDeployment,
+          task: async (_ctx: any, task: any) => {
+            await kube.waitUntilPodIsDeployed('app=che,component=plugin-registry', flags.chenamespace)
+            task.title = `${task.title}...done.`
+          }
+        },
+        {
+          title: 'Scale \"postgres\"  deployment to one',
+          enabled: (_ctx: any) => globalCtx.foundPostgresDeployment,
+          task: async (_ctx: any, task: any) => {
+            try {
+              if (globalCtx.deploymentConfigExist) {
+                await oc.scaleDeploymentConfig('postgres', flags.chenamespace, 1)
+              } else {
+                await kube.scaleDeployment('postgres', flags.chenamespace, 1)
+              }
+              task.title = await `${task.title}...done`
+            } catch (error) {
+              this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale postgres deployment. ${error.message}`)
+            }
+          }
+        },
+        {
+          title: 'Wait until Postgres pod is scaled',
+          enabled: (ctx: any) => globalCtx.foundKeycloakDeployment,
+          task: async (_ctx: any, task: any) => {
+            await kube.waitUntilPodIsDeployed('app=postgres', flags.chenamespace)
+            task.title = `${task.title}...done.`
+          }
+        },
+        {
+          title: 'Scale \"keycloak\"  deployment to one',
+          enabled: (ctx: any) => !globalCtx.isAlreadyStopped && !globalCtx.isNotReadyYet && globalCtx.foundKeycloakDeployment,
+          task: async (ctx: any, task: any) => {
+            try {
+              if (globalCtx.deploymentConfigExist) {
+                await oc.scaleDeploymentConfig('keycloak', flags.chenamespace, 1)
+              } else {
+                await kube.scaleDeployment('keycloak', flags.chenamespace, 1)
+              }
+              task.title = await `${task.title}...done`
+            } catch (error) {
+              this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale keycloak deployment. ${error.message}`)
+            }
+          }
+        },
+        {
+          title: 'Wait until Keycloak pod is scaled',
+          enabled: (ctx: any) => globalCtx.foundKeycloakDeployment,
+          task: async (_ctx: any, task: any) => {
+            await kube.waitUntilPodIsDeployed('app=keycloak', flags.chenamespace)
+            task.title = `${task.title}...done.`
+          }
+        },
+        {
+          title: `Scale \"${flags['deployment-name']}\"  deployment to one`,
+          // enabled: () => !globalCtx.isAlreadyStopped && !globalCtx.isNotReadyYet,
+          task: async (task: any) => {
+            try {
+              if (globalCtx.deploymentConfigExist) {
+                await oc.scaleDeploymentConfig(flags['deployment-name'], flags.chenamespace, 1)
+              } else {
+                await kube.scaleDeployment(flags['deployment-name'], flags.chenamespace, 1)
+              }
+              task.title = await `${task.title}...done`
+            } catch (error) {
+              this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale deployment. ${error.message}`)
+            }
+          }
+        },
+        {
+          title: 'Wait until Che pod is scaled',
+          // enabled: (ctx: any) => !ctx.isAlreadyStopped && !ctx.isNotReadyYet,
+          task: async (_ctx: any, task: any) => {
+            await kube.waitUntilPodIsDeployed('app=che,component=che', flags.chenamespace)
+            task.title = `${task.title}...done.`
+          }
+        },
+      ], 
+      { renderer: flags['listr-renderer'] as any, collapse: false }
+      )
+    })
+
     // Installer
     let installerTasks = new Listr({ renderer: flags['listr-renderer'] as any, collapse: false })
     if (flags.installer === 'helm') {
@@ -246,6 +465,9 @@ export default class Start extends Command {
       })
     } else if (flags.installer === 'operator') {
       // The operator installs Che multiuser only
+      if (!flags.multiuser) {
+        this.warn("Che will be deployed in Multi-User mode since Configured 'operator' installer which support only such.")  
+      }
       flags.multiuser = true
       // Installers use distinct ingress names
       installerTasks.add({
@@ -304,7 +526,7 @@ export default class Start extends Command {
 
     cheBootstrapSubTasks.add({
       title: 'Che pod bootstrap',
-      task: () => this.podStartTasks(this.getCheServerSelector(flags), flags.chenamespace)
+      task: () => this.podStartTasks(flags['che-selector'] as string, flags.chenamespace)
     })
 
     cheBootstrapSubTasks.add({
@@ -317,13 +539,24 @@ export default class Start extends Command {
 
     cheBootstrapSubTasks.add({
       title: 'Che status check',
-      task: async ctx => che.isCheServerReady(ctx.cheURL)
+      task: async ctx => che.waitCheServerReady(ctx.cheURL)
     })
 
     try {
       await platformCheckTasks.run()
-      await installerTasks.run()
-      await cheStartCheckTasks.run()
+      await cheExistenceTasks.run()
+      if (globalCtx.cheServerIsDeployed) {
+        if (globalCtx.cheServerIsReady) {
+          this.log(`Che Server is already running and available at ${globalCtx.cheURL}`)
+        } else {
+          await recoverCheTask.run()
+          await cheStartCheckTasks.run()
+        }
+      } else {
+        await installerTasks.run()
+        await cheStartCheckTasks.run()
+      }
+
       this.log('Command server:start has completed successfully.')
     } catch (err) {
       this.error(err)
@@ -336,6 +569,24 @@ export default class Start extends Command {
 
     this.exit(0)
   }
+
+  getDeployedDeployments(globalCtx: any):string {
+    let existingDeployments = ''
+    if (globalCtx.foundKeycloakDeployment) {
+      existingDeployments += ", keycloak"
+    } 
+    if (globalCtx.foundPostgresDeployment) {
+      existingDeployments += ", postgres"
+    }
+    if (globalCtx.foundDevfileRegistryDeployment) {
+      existingDeployments += ", devfile-registry"
+    }
+    if (globalCtx.foundPluginRegistryDeployment) {
+      existingDeployments += ", plugin-registry"
+    }
+    
+    return existingDeployments
+  } 
 
   getPostgresSelector(): string {
     return 'app=che,component=postgres'
@@ -351,14 +602,6 @@ export default class Start extends Command {
 
   getPluginRegistrySelector(): string {
     return 'app=che,component=plugin-registry'
-  }
-
-  getCheServerSelector(flags: any): string {
-    if (flags.installer === 'minishift-addon') {
-      return 'app=che'
-    } else {
-      return 'app=che,component=che'
-    }
   }
 
   podStartTasks(selector: string, namespace = ''): Listr {

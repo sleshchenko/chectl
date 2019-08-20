@@ -489,6 +489,21 @@ export class KubeHelper {
     throw new Error(`ERR_TIMEOUT: Timeout set to pod ready timeout ${this.podReadyTimeout}`)
   }
 
+  async waitUntilPodIsDeployed(selector: string, namespace = '', intervalMs = 500, timeoutMs = this.podReadyTimeout) {
+    const iterations = timeoutMs / intervalMs
+    for (let index = 0; index < iterations; index++) {
+      let readyStatus = await this.getPodReadyConditionStatus(selector, namespace)
+      if (readyStatus === 'True') {
+        return
+      }
+      if (readyStatus !== 'False') {
+        throw new Error(`ERR_BAD_READY_STATUS: ${readyStatus} (True or False expected) `)
+      }
+      await cli.wait(intervalMs)
+    }
+    throw new Error(`ERR_TIMEOUT: Timeout set to pod ready timeout ${this.podReadyTimeout}`)
+  }
+
   async waitUntilPodIsDeleted(selector: string, namespace = '', intervalMs = 500, timeoutMs = this.podReadyTimeout) {
     const iterations = timeoutMs / intervalMs
     for (let index = 0; index < iterations; index++) {
