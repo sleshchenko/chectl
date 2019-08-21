@@ -21,11 +21,11 @@ export class KubeHelper {
   podWaitTimeout: number
   podReadyTimeout: number
 
-  constructor(flags?: any, context?: string) {
-    if (!context) {
+  constructor(flags: any) {
+    if (!flags.context) {
       this.kc.loadFromDefault()
     } else {
-      this.kc.loadFromString(context)
+      this.kc.loadFromString(flags.context)
     }
     if (flags && flags.k8spodwaittimeout) {
       this.podWaitTimeout = parseInt(flags.k8spodwaittimeout, 10)

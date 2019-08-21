@@ -15,6 +15,7 @@ import { string } from '@oclif/parser/lib/flags'
 import { CheHelper } from '../../api/che'
 import { KubeHelper } from '../../api/kube'
 import { OpenShiftHelper } from '../../api/openshift'
+import { CheTasks } from '../../tasks/che';
 
 export default class Stop extends Command {
   static description = 'stop Eclipse Che Server'
@@ -51,9 +52,8 @@ export default class Stop extends Command {
     const { flags } = this.parse(Stop)
     const Listr = require('listr')
     const notifier = require('node-notifier')
-    const che = new CheHelper()
-    const kh = new KubeHelper()
-    const oc = new OpenShiftHelper()
+    const cheTasks = new CheTasks(flags)
+    const kh = new KubeHelper(flags)
     let tasks = new Listr([
       {
         title: 'Verify Kubernetes API',
@@ -72,7 +72,7 @@ export default class Stop extends Command {
       }
     ], { renderer: flags['listr-renderer'] as any })
 
-    tasks.add(che.installCheckTasks(flags, this))
+    tasks.add(cheTasks.checkIsCheIsInstalledTasks(this))
     tasks.add([{
       title: 'Deployment Config doesn\'t exist',
       enabled: (ctx: any) => (!ctx.cheDeploymentExist && !ctx.cheDeploymentConfigExist),
@@ -90,143 +90,8 @@ export default class Stop extends Command {
       enabled: (ctx: any) => (ctx.isNotReadyYet),
       task: async () => { }
     },
-    {
-      title: 'Stop Che server and wait until it\'s ready to shutdown',
-      enabled: (ctx: any) => !ctx.isStopped && !ctx.isNotReadyYet,
-      task: async (ctx: any, task: any) => {
-        if (ctx.isAuthEnabled && !flags['access-token']) {
-          this.error('E_AUTH_REQUIRED - Che authentication is enabled and an access token need to be provided (flag --access-token).\nFor instructions to retreive a valid access token refer to https://www.eclipse.org/che/docs/che-6/authentication.html')
-        }
-        try {
-          const cheURL = await che.cheURL(flags.chenamespace)
-          await che.startShutdown(cheURL, flags['access-token'])
-          await che.waitUntilReadyToShutdown(cheURL)
-          task.title = await `${task.title}...done`
-        } catch (error) {
-          this.error(`E_SHUTDOWN_CHE_SERVER_FAIL - Failed to shutdown Che server. ${error.message}`)
-        }
-      }
-    },
-    {
-      title: `Scale \"${flags['deployment-name']}\" deployment to zero`,
-      enabled: (ctx: any) => !ctx.isStopped,
-      task: async (ctx: any, task: any) => {
-        try {
-          if (ctx.cheDeploymentConfigExist) {
-            await oc.scaleDeploymentConfig(flags['deployment-name'], flags.chenamespace, 0)
-          } else {
-            await kh.scaleDeployment(flags['deployment-name'], flags.chenamespace, 0)
-          }
-          task.title = await `${task.title}...done`
-        } catch (error) {
-          this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale deployment. ${error.message}`)
-        }
-      }
-    },
-    {
-      title: 'Wait until Che pod is deleted',
-      enabled: (ctx: any) => !ctx.isStopped,
-      task: async (_ctx: any, task: any) => {
-        await kh.waitUntilPodIsDeleted('app=che', flags.chenamespace)
-        task.title = `${task.title}...done.`
-      }
-    },
-    {
-      title: 'Scale \"keycloak\" deployment to zero',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (ctx: any, task: any) => {
-        try {
-          if (ctx.cheDeploymentConfigExist) {
-            await oc.scaleDeploymentConfig('keycloak', flags.chenamespace, 0)
-          } else {
-            await kh.scaleDeployment('keycloak', flags.chenamespace, 0)
-          }
-          task.title = await `${task.title}...done`
-        } catch (error) {
-          this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale keycloak deployment. ${error.message}`)
-        }
-      }
-    },
-    {
-      title: 'Wait until Keycloak pod is deleted',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (_ctx: any, task: any) => {
-        await kh.waitUntilPodIsDeleted('app=keycloak', flags.chenamespace)
-        task.title = `${task.title}...done.`
-      }
-    },
-    {
-      title: 'Scale \"postgres\" deployment to zero',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (ctx: any, task: any) => {
-        try {
-          if (ctx.cheDeploymentConfigExist) {
-            await oc.scaleDeploymentConfig('postgres', flags.chenamespace, 0)
-          } else {
-            await kh.scaleDeployment('postgres', flags.chenamespace, 0)
-          }
-          task.title = await `${task.title}...done`
-        } catch (error) {
-          this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale postgres deployment. ${error.message}`)
-        }
-      }
-    },
-    {
-      title: 'Wait until Postgres pod is deleted',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (_ctx: any, task: any) => {
-        await kh.waitUntilPodIsDeleted('app=postgres', flags.chenamespace)
-        task.title = `${task.title}...done.`
-      }
-    },
-    {
-      title: 'Scale \"devfile registry\" deployment to zero',
-      enabled: (ctx: any) => ctx.foundDevfileRegistryDeployment,
-      task: async (ctx: any, task: any) => {
-        try {
-          if (ctx.deploymentConfigExist) {
-            await oc.scaleDeploymentConfig('devfile-registry', flags.chenamespace, 0)
-          } else {
-            await kh.scaleDeployment('devfile-registry', flags.chenamespace, 0)
-          }
-          task.title = await `${task.title}...done`
-        } catch (error) {
-          this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale devfile-registry deployment. ${error.message}`)
-        }
-      }
-    },
-    {
-      title: 'Wait until Devfile registry pod is deleted',
-      enabled: (ctx: any) => ctx.foundDevfileRegistryDeployment,
-      task: async (_ctx: any, task: any) => {
-        await kh.waitUntilPodIsDeleted('app=che,component=devfile-registry', flags.chenamespace)
-        task.title = `${task.title}...done.`
-      }
-    },
-    {
-      title: 'Scale \"plugin registry\" deployment to zero',
-      enabled: (ctx: any) => ctx.foundPluginRegistryDeployment,
-      task: async (ctx: any, task: any) => {
-        try {
-          if (ctx.deploymentConfigExist) {
-            await oc.scaleDeploymentConfig('plugin-registry', flags.chenamespace, 0)
-          } else {
-            await kh.scaleDeployment('plugin-registry', flags.chenamespace, 0)
-          }
-          task.title = await `${task.title}...done`
-        } catch (error) {
-          this.error(`E_SCALE_DEPLOY_FAIL - Failed to scale plugin-registry deployment. ${error.message}`)
-        }
-      }
-    },
-    {
-      title: 'Wait until Plugin registry pod is deleted',
-      enabled: (ctx: any) => ctx.foundPluginRegistryDeployment,
-      task: async (_ctx: any, task: any) => {
-        await kh.waitUntilPodIsDeleted('app=che,component=plugin-registry', flags.chenamespace)
-        task.title = `${task.title}...done.`
-      }
-    },
+
+    cheTasks.scaleCheDownTasks(this),
     ], { renderer: flags['listr-renderer'] as any })
 
     try {
