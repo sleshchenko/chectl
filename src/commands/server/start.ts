@@ -186,11 +186,6 @@ export default class Start extends Command {
     const operator = new OperatorHelper()
     const minishiftAddon = new MinishiftAddonHelper()
 
-    let cheDeploymentExist = false
-    let keycloakDeploymentExist = false
-    let postgresDeploymentExist = false
-    let cheIsAlreadyRunning = false
-
     // matrix checks
     if (flags.installer) {
       if (flags.installer === 'minishift-addon') {
@@ -292,13 +287,10 @@ export default class Start extends Command {
         title: 'Scaling up Che Deployment',
         enabled: (ctx: any) => ctx.cheDeploymentExist && ctx.isStopped,
         task: async (ctx: any, task: any) => {
-          cheDeploymentExist = true
           if (ctx.postgresDeploymentExist) {
-            postgresDeploymentExist = true
             await kube.scaleDeployment('postgres', flags.chenamespace, 1)
           }
           if (ctx.keycloakDeploymentExist) {
-            keycloakDeploymentExist = true
             await kube.scaleDeployment('keycloak', flags.chenamespace, 1)
           }
           await kube.scaleDeployment(flags['deployment-name'], flags.chenamespace, 1)
@@ -309,13 +301,10 @@ export default class Start extends Command {
         title: 'Scaling up Che DeploymentConfig',
         enabled: (ctx: any) => ctx.cheDeploymentConfigExist && ctx.isStopped,
         task: async (ctx: any, task: any) => {
-          cheDeploymentExist = true
           if (ctx.postgresDeploymentExist) {
-            postgresDeploymentExist = true
             await os.scaleDeploymentConfig('postgres', flags.chenamespace, 1)
           }
           if (ctx.keycloakDeploymentExist) {
-            keycloakDeploymentExist = true
             await os.scaleDeploymentConfig('keycloak', flags.chenamespace, 1)
           }
           await os.scaleDeploymentConfig(flags['deployment-name'], flags.chenamespace, 1)
@@ -326,8 +315,8 @@ export default class Start extends Command {
         title: `Che is already running in namespace \"${flags.chenamespace}\".`,
         enabled: (ctx: any) => ((ctx.cheDeploymentExist || ctx.cheDeploymentConfigExist) && !ctx.isStopped),
         task: async (ctx: any, task: any) => {
-          cheDeploymentExist = true
-          cheIsAlreadyRunning = true
+          ctx.cheDeploymentExist = true
+          ctx.cheIsAlreadyRunning = true
           ctx.cheURL = await che.cheURL(flags.chenamespace)
           task.title = await `${task.title}...it's URL is ${ctx.cheURL}`
         }
@@ -345,13 +334,13 @@ export default class Start extends Command {
       })
 
     postInstallSubTasks.add({
-      enabled: () => (flags.multiuser || postgresDeploymentExist),
+      enabled: (ctx) => (flags.multiuser || ctx.postgresDeploymentExist),
       title: 'PostgreSQL pod bootstrap',
       task: () => this.podStartTasks('app=postgres', flags.chenamespace)
     })
 
     postInstallSubTasks.add({
-      enabled: () => (flags.multiuser || keycloakDeploymentExist),
+      enabled: (ctx) => (flags.multiuser || ctx.keycloakDeploymentExist),
       title: 'Keycloak pod bootstrap',
       task: () => this.podStartTasks('app=keycloak', flags.chenamespace)
     })
@@ -389,13 +378,14 @@ export default class Start extends Command {
     })
 
     try {
-      await platformCheckTasks.run()
-      await preInstallTasks.run()
-      if (!cheIsAlreadyRunning && !cheDeploymentExist) {
-        await installerTasks.run()
+      const ctx: any = {};
+      await platformCheckTasks.run(ctx)
+      await preInstallTasks.run(ctx)
+      if (!ctx.cheIsAlreadyRunning && !ctx.cheDeploymentExist) {
+        await installerTasks.run(ctx)
       }
-      if (!cheIsAlreadyRunning) {
-        await postInstallTasks.run()
+      if (!ctx.cheIsAlreadyRunning) {
+        await postInstallTasks.run(ctx)
       }
       this.log('Command server:start has completed successfully.')
     } catch (err) {
