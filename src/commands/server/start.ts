@@ -27,6 +27,7 @@ import { MicroK8sHelper } from '../../platforms/microk8s'
 import { MinikubeHelper } from '../../platforms/minikube'
 import { MinishiftHelper } from '../../platforms/minishift'
 import { OpenshiftHelper } from '../../platforms/openshift'
+import { OpenShiftHelper } from '../../api/openshift';
 
 let kube: KubeHelper
 export default class Start extends Command {
@@ -39,6 +40,11 @@ export default class Start extends Command {
       description: 'Kubernetes namespace where Che resources will be deployed',
       default: 'che',
       env: 'CHE_NAMESPACE'
+    }),
+    'deployment-name': string({
+      description: 'Che deployment name',
+      default: 'che',
+      env: 'CHE_DEPLOYMENT'
     }),
     cheimage: string({
       char: 'i',
@@ -166,7 +172,8 @@ export default class Start extends Command {
 
   async run() {
     const { flags } = this.parse(Start)
-    kube = new KubeHelper(flags)
+    const kube = new KubeHelper(flags)
+    const os = new OpenShiftHelper()
     Start.setPlaformDefaults(flags)
     const minikube = new MinikubeHelper()
     const microk8s = new MicroK8sHelper()
@@ -178,6 +185,11 @@ export default class Start extends Command {
     const che = new CheHelper()
     const operator = new OperatorHelper()
     const minishiftAddon = new MinishiftAddonHelper()
+
+    let cheDeploymentExist = false
+    let keycloakDeploymentExist = false
+    let postgresDeploymentExist = false
+    let cheIsAlreadyRunning = false
 
     // matrix checks
     if (flags.installer) {
@@ -265,49 +277,105 @@ export default class Start extends Command {
       this.exit()
     }
 
-    // Post Install Checks
-    let cheBootstrapSubTasks = new Listr()
-    const cheStartCheckTasks = new Listr([{
-      title: '✅  Post installation checklist',
-      task: () => cheBootstrapSubTasks
-    }],
-      {
+    // Checks if Che is already deployed
+    let preInstallSubTasks = new Listr()
+    const preInstallTasks = new Listr([{
+      title: '👀  Looking for an already existing Che instance',
+      task: () => preInstallSubTasks
+    }], {
         renderer: flags['listr-renderer'] as any,
         collapse: false
+      })
+    preInstallSubTasks.add(che.installCheckTasks(flags, this))
+    preInstallSubTasks.add([
+      {
+        title: 'Scaling up Che Deployment',
+        enabled: (ctx: any) => ctx.cheDeploymentExist && ctx.isStopped,
+        task: async (ctx: any, task: any) => {
+          cheDeploymentExist = true
+          if (ctx.postgresDeploymentExist) {
+            postgresDeploymentExist = true
+            await kube.scaleDeployment('postgres', flags.chenamespace, 1)
+          }
+          if (ctx.keycloakDeploymentExist) {
+            keycloakDeploymentExist = true
+            await kube.scaleDeployment('keycloak', flags.chenamespace, 1)
+          }
+          await kube.scaleDeployment(flags['deployment-name'], flags.chenamespace, 1)
+          task.title = `${task.title}...done.`
+        }
+      },
+      {
+        title: 'Scaling up Che DeploymentConfig',
+        enabled: (ctx: any) => ctx.cheDeploymentConfigExist && ctx.isStopped,
+        task: async (ctx: any, task: any) => {
+          cheDeploymentExist = true
+          if (ctx.postgresDeploymentExist) {
+            postgresDeploymentExist = true
+            await os.scaleDeploymentConfig('postgres', flags.chenamespace, 1)
+          }
+          if (ctx.keycloakDeploymentExist) {
+            keycloakDeploymentExist = true
+            await os.scaleDeploymentConfig('keycloak', flags.chenamespace, 1)
+          }
+          await os.scaleDeploymentConfig(flags['deployment-name'], flags.chenamespace, 1)
+          task.title = `${task.title}...done.`
+        }
+      },
+      {
+        title: `Che is already running in namespace \"${flags.chenamespace}\".`,
+        enabled: (ctx: any) => ((ctx.cheDeploymentExist || ctx.cheDeploymentConfigExist) && !ctx.isStopped),
+        task: async (ctx: any, task: any) => {
+          cheDeploymentExist = true
+          cheIsAlreadyRunning = true
+          ctx.cheURL = await che.cheURL(flags.chenamespace)
+          task.title = await `${task.title}...it's URL is ${ctx.cheURL}`
+        }
       }
-    )
+    ])
 
-    if (flags.multiuser) {
-      cheBootstrapSubTasks.add({
-        title: 'PostgreSQL pod bootstrap',
-        task: () => this.podStartTasks(this.getPostgresSelector(), flags.chenamespace)
+    // Post Install Checks
+    let postInstallSubTasks = new Listr()
+    const postInstallTasks = new Listr([{
+      title: '✅  Post installation checklist',
+      task: () => postInstallSubTasks
+    }], {
+        renderer: flags['listr-renderer'] as any,
+        collapse: false
       })
-      cheBootstrapSubTasks.add({
-        title: 'Keycloak pod bootstrap',
-        task: () => this.podStartTasks(this.getKeycloakSelector(), flags.chenamespace)
-      })
-    }
+
+    postInstallSubTasks.add({
+      enabled: () => (flags.multiuser || postgresDeploymentExist),
+      title: 'PostgreSQL pod bootstrap',
+      task: () => this.podStartTasks('app=postgres', flags.chenamespace)
+    })
+
+    postInstallSubTasks.add({
+      enabled: () => (flags.multiuser || keycloakDeploymentExist),
+      title: 'Keycloak pod bootstrap',
+      task: () => this.podStartTasks('app=keycloak', flags.chenamespace)
+    })
 
     if (!flags['devfile-registry-url'] && flags.installer !== 'minishift-addon') {
-      cheBootstrapSubTasks.add({
+      postInstallSubTasks.add({
         title: 'Devfile registry pod bootstrap',
         task: () => this.podStartTasks(this.getDevfileRegistrySelector(), flags.chenamespace)
       })
     }
 
     if (!flags['plugin-registry-url'] && flags.installer !== 'minishift-addon') {
-      cheBootstrapSubTasks.add({
+      postInstallSubTasks.add({
         title: 'Plugin registry pod bootstrap',
         task: () => this.podStartTasks(this.getPluginRegistrySelector(), flags.chenamespace)
       })
     }
 
-    cheBootstrapSubTasks.add({
+    postInstallSubTasks.add({
       title: 'Che pod bootstrap',
       task: () => this.podStartTasks(this.getCheServerSelector(flags), flags.chenamespace)
     })
 
-    cheBootstrapSubTasks.add({
+    postInstallSubTasks.add({
       title: 'Retrieving Che Server URL',
       task: async (ctx: any, task: any) => {
         ctx.cheURL = await che.cheURL(flags.chenamespace)
@@ -315,15 +383,20 @@ export default class Start extends Command {
       }
     })
 
-    cheBootstrapSubTasks.add({
+    postInstallSubTasks.add({
       title: 'Che status check',
       task: async ctx => che.isCheServerReady(ctx.cheURL)
     })
 
     try {
       await platformCheckTasks.run()
-      await installerTasks.run()
-      await cheStartCheckTasks.run()
+      await preInstallTasks.run()
+      if (!cheIsAlreadyRunning && !cheDeploymentExist) {
+        await installerTasks.run()
+      }
+      if (!cheIsAlreadyRunning) {
+        await postInstallTasks.run()
+      }
       this.log('Command server:start has completed successfully.')
     } catch (err) {
       this.error(err)
