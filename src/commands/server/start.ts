@@ -7,7 +7,6 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 
 import { Command, flags } from '@oclif/command'
 import { string } from '@oclif/parser/lib/flags'
@@ -16,29 +15,25 @@ import * as Listr from 'listr'
 import * as notifier from 'node-notifier'
 import * as path from 'path'
 
-import { CheHelper } from '../../api/che'
-import { HelmHelper } from '../../installers/helm'
-import { MinishiftAddonHelper } from '../../installers/minishift-addon'
-import { OperatorHelper } from '../../installers/operator'
-import { DockerDesktopHelper } from '../../platforms/docker-desktop'
-import { K8sHelper } from '../../platforms/k8s'
-import { MicroK8sHelper } from '../../platforms/microk8s'
-import { MinikubeHelper } from '../../platforms/minikube'
-import { MinishiftHelper } from '../../platforms/minishift'
-import { OpenshiftHelper } from '../../platforms/openshift'
-import { CheTasks } from '../../tasks/che';
+import { CheTasks } from '../../tasks/che'
+import { HelmTasks } from '../../tasks/installers/helm'
+import { MinishiftAddonTasks } from '../../tasks/installers/minishift-addon'
+import { OperatorTasks } from '../../tasks/installers/operator'
+import { DockerDesktopTasks } from '../../tasks/platforms/docker-desktop'
+import { K8sTasks } from '../../tasks/platforms/k8s'
+import { MicroK8sTasks } from '../../tasks/platforms/microk8s'
+import { MinikubeTasks } from '../../tasks/platforms/minikube'
+import { MinishiftTasks } from '../../tasks/platforms/minishift'
+import { OpenshiftTasks } from '../../tasks/platforms/openshift'
+import { cheNamespace, listrRenderer } from '../flags'
 
 export default class Start extends Command {
   static description = 'start Eclipse Che Server'
 
   static flags = {
     help: flags.help({ char: 'h' }),
-    chenamespace: string({
-      char: 'n',
-      description: 'Kubernetes namespace where Che resources will be deployed',
-      default: 'che',
-      env: 'CHE_NAMESPACE'
-    }),
+    chenamespace: cheNamespace,
+    'listr-renderer': listrRenderer,
     'deployment-name': string({
       description: 'Che deployment name',
       default: 'che',
@@ -79,10 +74,6 @@ export default class Start extends Command {
       description: 'Waiting time for Pod Ready Kubernetes (in milliseconds)',
       default: '130000'
     }),
-    'listr-renderer': string({
-      description: 'Listr renderer. Can be \'default\', \'silent\' or \'verbose\'',
-      default: 'default'
-    }),
     multiuser: flags.boolean({
       char: 'm',
       description: 'Starts che in multi-user mode',
@@ -97,20 +88,22 @@ export default class Start extends Command {
       description: 'Authorize usage of self signed certificates for encryption. Note that `self-signed-cert` secret with CA certificate must be created in the configured namespace.',
       default: false
     }),
+    platform: string({
+      char: 'p',
+      description: 'Type of Kubernetes platform',
+      options: ['minikube', 'minishift', 'k8s', 'openshift', 'microk8s', 'docker-desktop'],
+      default: 'minikube'
+    }),
     installer: string({
       char: 'a',
-      description: 'Installer type. Valid values are \"helm\", \"operator\" and \"minishift-addon\"',
+      description: 'Installer type',
+      options: ['helm', 'operator', 'minishift-addon'],
       default: ''
     }),
     domain: string({
       char: 'b',
       description: 'Domain of the Kubernetes cluster (e.g. example.k8s-cluster.com or <local-ip>.nip.io)',
       default: ''
-    }),
-    platform: string({
-      char: 'p',
-      description: 'Type of Kubernetes platform. Valid values are \"minikube\", \"minishift\", \"k8s\", \"openshift\", \"microk8s\".',
-      default: 'minikube'
     }),
     'os-oauth': flags.boolean({
       description: 'Enable use of OpenShift credentials to log into Che',
@@ -168,21 +161,7 @@ export default class Start extends Command {
     }
   }
 
-  async run() {
-    const { flags } = this.parse(Start)
-    Start.setPlaformDefaults(flags)
-    const minikube = new MinikubeHelper()
-    const microk8s = new MicroK8sHelper()
-    const minishift = new MinishiftHelper()
-    const openshift = new OpenshiftHelper()
-    const k8s = new K8sHelper()
-    const dockerDesktop = new DockerDesktopHelper()
-    const helm = new HelmHelper()
-    const che = new CheHelper()
-    const operator = new OperatorHelper()
-    const minishiftAddon = new MinishiftAddonHelper()
-    const cheTasks = new CheTasks(flags)
-
+  checkPlatformCompatibility(flags: any) {
     // matrix checks
     if (flags.installer) {
       if (flags.installer === 'minishift-addon') {
@@ -203,38 +182,57 @@ export default class Start extends Command {
         }
       }
     }
+  }
+
+  async run() {
+    const { flags } = this.parse(Start)
+    Start.setPlaformDefaults(flags)
+
+    const minikubeTasks = new MinikubeTasks()
+    const microk8sTasks = new MicroK8sTasks()
+    const minishiftTasks = new MinishiftTasks()
+    const openshiftTasks = new OpenshiftTasks()
+    const k8sTasks = new K8sTasks()
+    const dockerDesktopTasks = new DockerDesktopTasks(flags)
+    const operatorTasks = new OperatorTasks()
+    const minishiftAddonTasks = new MinishiftAddonTasks()
+    const cheTasks = new CheTasks(flags)
+    const helmTasks = new HelmTasks()
+
+    this.checkPlatformCompatibility(flags)
 
     // Platform Checks
     let platformCheckTasks = new Listr(undefined, { renderer: flags['listr-renderer'] as any, collapse: false })
+
     if (flags.platform === 'minikube') {
       platformCheckTasks.add({
         title: '✈️  Minikube preflight checklist',
-        task: () => minikube.startTasks(flags, this)
+        task: () => minikubeTasks.startTasks(flags, this)
       })
     } else if (flags.platform === 'minishift') {
       platformCheckTasks.add({
         title: '✈️  Minishift preflight checklist',
-        task: () => minishift.startTasks(flags, this)
+        task: () => minishiftTasks.startTasks(flags, this)
       })
     } else if (flags.platform === 'microk8s') {
       platformCheckTasks.add({
         title: '✈️  MicroK8s preflight checklist',
-        task: () => microk8s.startTasks(flags, this)
+        task: () => microk8sTasks.startTasks(flags, this)
       })
     } else if (flags.platform === 'openshift') {
       platformCheckTasks.add({
         title: '✈️  Openshift preflight checklist',
-        task: () => openshift.startTasks(flags, this)
+        task: () => openshiftTasks.startTasks(flags, this)
       })
     } else if (flags.platform === 'k8s') {
       platformCheckTasks.add({
         title: '✈️  Kubernetes preflight checklist',
-        task: () => k8s.startTasks(flags, this)
+        task: () => k8sTasks.startTasks(flags, this)
       })
     } else if (flags.platform === 'docker-desktop') {
       platformCheckTasks.add({
         title: '✈️  Docker Desktop preflight checklist',
-        task: () => dockerDesktop.startTasks(flags, this)
+        task: () => dockerDesktopTasks.startTasks(flags, this)
       })
     } else {
       this.error(`Platformm ${flags.platform} is not supported yet ¯\\_(ツ)_/¯`)
@@ -246,15 +244,18 @@ export default class Start extends Command {
     if (flags.installer === 'helm') {
       installerTasks.add({
         title: '🏃‍  Running Helm to install Che',
-        task: () => helm.startTasks(flags, this)
+        task: () => helmTasks.startTasks(flags, this)
       })
     } else if (flags.installer === 'operator') {
       // The operator installs Che multiuser only
-      flags.multiuser = true
+      if (!flags.multiuser) {
+        this.warn("Che will be deployed in Multi-User mode since Configured 'operator' installer which support only such.")
+        flags.multiuser = true
+      }
       // Installers use distinct ingress names
       installerTasks.add({
         title: '🏃‍  Running the Che Operator',
-        task: () => operator.startTasks(flags, this)
+        task: () => operatorTasks.startTasks(flags, this)
       })
     } else if (flags.installer === 'minishift-addon') {
       // minishift-addon supports Che singleuser only
@@ -262,7 +263,7 @@ export default class Start extends Command {
       // Installers use distinct ingress names
       installerTasks.add({
         title: '🏃‍  Running the Che minishift-addon',
-        task: () => minishiftAddon.startTasks(flags, this)
+        task: () => minishiftAddonTasks.startTasks(flags, this)
       })
     } else {
       this.error(`Installer ${flags.installer} is not supported ¯\\_(ツ)_/¯`)
@@ -272,19 +273,21 @@ export default class Start extends Command {
     // Checks if Che is already deployed
     const preInstallTasks = new Listr([{
       title: '👀  Looking for an already existing Che instance',
-      task: () => new Listr(cheTasks.checkIsCheIsInstalledTasks(this))
-    }], {
+      task: () => new Listr(cheTasks.checkIfCheIsInstalledTasks(this))
+    }],
+      {
         renderer: flags['listr-renderer'] as any,
         collapse: false
-      })
+      }
+    )
 
     const startDeployedCheTasks = new Listr([{
       title: '👀  Starting already deployed Che',
       task: () => new Listr(cheTasks.scaleCheUpTasks(this))
     }], {
-        renderer: flags['listr-renderer'] as any,
-        collapse: false
-      })
+      renderer: flags['listr-renderer'] as any,
+      collapse: false
+    })
 
     // Post Install Checks
     let postInstallSubTasks = new Listr()
@@ -292,56 +295,14 @@ export default class Start extends Command {
       title: '✅  Post installation checklist',
       task: () => postInstallSubTasks
     }], {
-        renderer: flags['listr-renderer'] as any,
-        collapse: false
-      })
-
-    postInstallSubTasks.add({
-      enabled: (ctx) => (flags.multiuser || ctx.postgresDeploymentExist),
-      title: 'PostgreSQL pod bootstrap',
-      task: () => cheTasks.waitDevfileRegistryPodTasks(this)
+      renderer: flags['listr-renderer'] as any,
+      collapse: false
     })
 
-    postInstallSubTasks.add({
-      enabled: (ctx) => (flags.multiuser || ctx.keycloakDeploymentExist),
-      title: 'Keycloak pod bootstrap',
-      task: () => cheTasks.waitKeycloakPodTasks(this)
-    })
-
-    if (!flags['devfile-registry-url'] && flags.installer !== 'minishift-addon') {
-      postInstallSubTasks.add({
-        title: 'Devfile registry pod bootstrap',
-        task: () => cheTasks.waitDevfileRegistryPodTasks(this)
-      })
-    }
-
-    if (!flags['plugin-registry-url'] && flags.installer !== 'minishift-addon') {
-      postInstallSubTasks.add({
-        title: 'Plugin registry pod bootstrap',
-        task: () => cheTasks.waitPluginRegistryPodTasks(this)
-      })
-    }
-
-    postInstallSubTasks.add({
-      title: 'Che pod bootstrap',
-      task: () => cheTasks.waitChePodTasks(this)
-    })
-
-    postInstallSubTasks.add({
-      title: 'Retrieving Che Server URL',
-      task: async (ctx: any, task: any) => {
-        ctx.cheURL = await che.cheURL(flags.chenamespace)
-        task.title = await `${task.title}...${ctx.cheURL}`
-      }
-    })
-
-    postInstallSubTasks.add({
-      title: 'Che status check',
-      task: async ctx => che.isCheServerReady(ctx.cheURL)
-    })
+    postInstallSubTasks.add(cheTasks.waitDeployedChe(flags, this))
 
     try {
-      const ctx: any = {};
+      const ctx: any = {}
       await platformCheckTasks.run(ctx)
       await preInstallTasks.run(ctx)
       if (ctx.isCheDeployed) {

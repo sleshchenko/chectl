@@ -43,7 +43,7 @@ declare namespace Listr {
 }
 
 declare class Listr {
-  constructor(tasks?: ReadonlyArray<Listr.ListrTask>, options?: Listr.ListrOptions);
+  constructor(tasks?: ReadonlyArray<Listr.ListrTask|ReadonlyArray<Listr.ListrTask>>, options?: Listr.ListrOptions);
   constructor(options?: Listr.ListrOptions);
   add(tasks: Listr.ListrTask | ReadonlyArray<Listr.ListrTask>): void;
   run(ctx?: any): Promise<any>;

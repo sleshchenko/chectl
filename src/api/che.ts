@@ -7,26 +7,26 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
-// tslint:disable-next-line:no-http-string
-
 import { Core_v1Api, KubeConfig } from '@kubernetes/client-node'
-
 import axios from 'axios'
 import { cli } from 'cli-ux'
 import * as fs from 'fs'
 import * as yaml from 'js-yaml'
 
-import { KubeHelper } from '../api/kube'
 import { OpenShiftHelper } from '../api/openshift'
 
 import { Devfile } from './devfile'
+import { KubeHelper } from './kube'
 
 export class CheHelper {
   defaultCheResponseTimeoutMs = 3000
   kc = new KubeConfig()
-  kube = new KubeHelper()
+  kube: KubeHelper
   oc = new OpenShiftHelper()
+
+  constructor(flags: any) {
+    this.kube = new KubeHelper(flags)
+  }
 
   async cheServerPodExist(namespace: string): Promise<boolean> {
     const kc = new KubeConfig()

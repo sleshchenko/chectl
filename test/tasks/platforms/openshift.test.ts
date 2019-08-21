@@ -7,15 +7,14 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 import * as execa from 'execa'
 import { expect, fancy } from 'fancy-test'
 
-import { OpenshiftHelper } from '../../src/platforms/openshift'
+import { OpenshiftTasks } from '../../../src/tasks/platforms/openshift'
 
 jest.mock('execa')
 
-let openshift = new OpenshiftHelper()
+let openshift = new OpenshiftTasks()
 
 describe('start', () => {
   fancy

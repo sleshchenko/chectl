@@ -7,7 +7,6 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 import { Core_v1Api } from '@kubernetes/client-node'
 import { expect, fancy } from 'fancy-test'
 
@@ -18,7 +17,7 @@ const workspace = 'workspace-0123'
 const cheURL = 'https://che-che.192.168.64.34.nip.io'
 const devfileServerURL = 'https://devfile-server'
 const devfileEndpoint = '/api/workspace/devfile'
-let ch = new CheHelper()
+let ch = new CheHelper({})
 let kc = ch.kc
 let kube = ch.kube
 let oc = ch.oc

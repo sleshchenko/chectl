@@ -7,14 +7,13 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 import { expect, fancy } from 'fancy-test'
-import { MinikubeHelper } from '../../src/platforms/minikube';
+import { MinikubeTasks } from '../../../src/tasks/platforms/minikube';
 import * as execa from 'execa';
 
 jest.mock('execa');
 
-let mh = new MinikubeHelper()
+let mh = new MinikubeTasks()
 
 describe('start', () => {
   fancy

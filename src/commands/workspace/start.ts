@@ -7,25 +7,20 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 
 import { Command, flags } from '@oclif/command'
 import { string } from '@oclif/parser/lib/flags'
 import { cli } from 'cli-ux'
 
 import { CheHelper } from '../../api/che'
+import { accessToken, cheNamespace, listrRenderer } from '../flags'
 
 export default class Start extends Command {
   static description = 'create and start a Che workspace'
 
   static flags = {
     help: flags.help({ char: 'h' }),
-    chenamespace: string({
-      char: 'n',
-      description: 'kubernetes namespace where Che server is deployed',
-      default: 'che',
-      env: 'CHE_NAMESPACE',
-    }),
+    chenamespace: cheNamespace,
     devfile: string({
       char: 'f',
       description: 'path or URL to a valid devfile',
@@ -42,14 +37,8 @@ export default class Start extends Command {
       description: 'workspace name: overrides the workspace name to use instead of the one defined in the devfile. Works only for devfile',
       required: false,
     }),
-    'access-token': string({
-      description: 'Che OIDC Access Token',
-      env: 'CHE_ACCESS_TOKEN'
-    }),
-    'listr-renderer': string({
-      description: 'Listr renderer. Can be \'default\', \'silent\' or \'verbose\'',
-      default: 'default'
-    }),
+    'access-token': accessToken,
+    'listr-renderer': listrRenderer
   }
 
   async checkToken(flags: any, ctx: any) {
@@ -62,7 +51,7 @@ export default class Start extends Command {
     const { flags } = this.parse(Start)
     const Listr = require('listr')
     const notifier = require('node-notifier')
-    const che = new CheHelper()
+    const che = new CheHelper(flags)
     if (!flags.devfile && !flags.workspaceconfig) {
       this.error('workspace:start command is expecting a devfile or workspace configuration parameter.')
     }

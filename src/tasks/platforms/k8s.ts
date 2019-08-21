@@ -7,15 +7,39 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 
 import { Command } from '@oclif/command'
 import * as commandExists from 'command-exists'
 import * as Listr from 'listr'
 
-import { KubeHelper } from '../api/kube'
+import { KubeHelper } from '../../api/kube'
 
-export class K8sHelper {
+export class K8sTasks {
+  /**
+   * TODO
+   */
+  testApiTasks(flags: any, command: Command): Listr.ListrTask {
+    let kube = new KubeHelper(flags)
+    return {
+      title: 'Verify Kubernetes API',
+      task: async (ctx: any, task: any) => {
+        try {
+          await kube.checkKubeApi()
+          ctx.isOpenShift = await kube.isOpenShift()
+          task.title = await `${task.title}...OK`
+          if (ctx.isOpenShift) {
+            task.title = await `${task.title} (it's OpenShift)`
+          }
+        } catch (error) {
+          command.error(`Failed to connect to Kubernetes API. ${error.message}`)
+        }
+      }
+    }
+  }
+
+  /**
+   * TODO
+   */
   startTasks(flags: any, command: Command): Listr {
     return new Listr([
       {
@@ -29,7 +53,7 @@ export class K8sHelper {
       {
         title: 'Verify remote kubernetes status',
         task: async (_ctx: any, task: any) => {
-          const kh = new KubeHelper()
+          const kh = new KubeHelper(flags)
           try {
             await kh.checkKubeApi()
             task.title = `${task.title}...done.`
@@ -48,7 +72,8 @@ export class K8sHelper {
           task.title = `${task.title}...set to ${flags.domain}.`
         }
       },
-    ], { renderer: flags['listr-renderer'] as any })
+    ],
+      { renderer: flags['listr-renderer'] as any }
+    )
   }
-
 }

@@ -7,8 +7,6 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
-
 import execa = require('execa')
 
 export class OpenShiftHelper {

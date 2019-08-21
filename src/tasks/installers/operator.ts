@@ -7,7 +7,6 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 import { Command } from '@oclif/command'
 import { cli } from 'cli-ux'
 import * as execa from 'execa'
@@ -16,10 +15,10 @@ import * as Listr from 'listr'
 import { ncp } from 'ncp'
 import * as path from 'path'
 
-import { CheHelper } from '../api/che'
-import { KubeHelper } from '../api/kube'
+import { CheHelper } from '../../api/che'
+import { KubeHelper } from '../../api/kube'
 
-export class OperatorHelper {
+export class OperatorTasks {
   operatorServiceAccount = 'che-operator'
   operatorRole = 'che-operator'
   operatorClusterRole = 'che-operator'
@@ -30,8 +29,11 @@ export class OperatorHelper {
   operatorCheCluster = 'eclipse-che'
   resourcesPath = ''
 
+  /**
+   * TODO
+   */
   startTasks(flags: any, command: Command): Listr {
-    const che = new CheHelper()
+    const che = new CheHelper(flags)
     const kube = new KubeHelper(flags)
     return new Listr([
       {
@@ -174,6 +176,123 @@ export class OperatorHelper {
         }
       }
     ], { renderer: flags['listr-renderer'] as any })
+  }
+
+  /**
+   * TODO
+   */
+  deleteTasks(flags: any): ReadonlyArray<Listr.ListrTask> {
+    let kh = new KubeHelper(flags)
+    return [{
+      title: 'Delete the CR eclipse-che of type checlusters.org.eclipse.che',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.crdExist('checlusters.org.eclipse.che') &&
+          await kh.cheClusterExist('eclipse-che', flags.chenamespace)) {
+          await kh.deleteCheCluster('eclipse-che', flags.chenamespace)
+          await cli.wait(2000) //wait a couple of secs for the finalizers to be executed
+          task.title = await `${task.title}...OK`
+        } else {
+          task.title = await `${task.title}...CR not found`
+        }
+      }
+    },
+    {
+      title: 'Delete CRD checlusters.org.eclipse.che',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.crdExist('checlusters.org.eclipse.che')) {
+          await kh.deleteCrd('checlusters.org.eclipse.che')
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete Operator Deployment',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.crdExist('checlusters.org.eclipse.che')) {
+          await kh.deleteCrd('checlusters.org.eclipse.che')
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete Operator PVC',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.crdExist('checlusters.org.eclipse.che')) {
+          await kh.deleteCrd('checlusters.org.eclipse.che')
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete Operator PVC',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.crdExist('checlusters.org.eclipse.che')) {
+          await kh.deleteCrd('checlusters.org.eclipse.che')
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete role che-operator',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.roleExist('che-operator', flags.chenamespace)) {
+          await kh.deleteRole('che-operator', flags.chenamespace)
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete cluster role binding che-operator',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.clusterRoleBindingExist('che-operator')) {
+          await kh.deleteClusterRoleBinding('che-operator')
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete cluster role che-operator',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.clusterRoleExist('che-operator')) {
+          await kh.deleteClusterRole('che-operator')
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete rolebinding che-operator',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.roleBindingExist('che', flags.chenamespace)) {
+          await kh.deleteRoleBinding('che', flags.chenamespace)
+        }
+        if (await kh.roleBindingExist('che-workspace-exec', flags.chenamespace)) {
+          await kh.deleteRoleBinding('che-workspace-exec', flags.chenamespace)
+        }
+        if (await kh.roleBindingExist('che-workspace-view', flags.chenamespace)) {
+          await kh.deleteRoleBinding('che-workspace-view', flags.chenamespace)
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete service accounts che-operator',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.roleBindingExist('che-operator', flags.chenamespace)) {
+          await kh.deleteServiceAccount('che-operator', flags.chenamespace)
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    {
+      title: 'Delete PVC che-operator',
+      task: async (_ctx: any, task: any) => {
+        if (await kh.persistentVolumeClaimExist('che-operator', flags.chenamespace)) {
+          await kh.deletePersistentVolumeClaim('che-operator', flags.chenamespace)
+        }
+        task.title = await `${task.title}...OK`
+      }
+    },
+    ]
   }
 
   async copyCheOperatorResources(templatesDir: string, cacheDir: string): Promise<string> {

@@ -7,14 +7,16 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 
 import { Command } from '@oclif/command'
 import * as commandExists from 'command-exists'
 import * as execa from 'execa'
 import * as Listr from 'listr'
 
-export class MinishiftHelper {
+export class MinishiftTasks {
+  /**
+   * TODO
+   */
   startTasks(flags: any, command: Command): Listr {
     return new Listr([
       {

@@ -7,15 +7,14 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 import * as execa from 'execa'
 import { expect, fancy } from 'fancy-test'
 
-import { MinishiftHelper } from '../../src/platforms/minishift'
+import { MinishiftTasks } from '../../../src/tasks/platforms/minishift'
 
 jest.mock('execa')
 
-let ms = new MinishiftHelper()
+let ms = new MinishiftTasks()
 
 describe('start', () => {
   fancy

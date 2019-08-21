@@ -7,27 +7,20 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 
 import { Command, flags } from '@oclif/command'
 import { string } from '@oclif/parser/lib/flags'
 
-import { CheHelper } from '../../api/che'
 import { KubeHelper } from '../../api/kube'
-import { OpenShiftHelper } from '../../api/openshift'
-import { CheTasks } from '../../tasks/che';
+import { CheTasks } from '../../tasks/che'
+import { accessToken, cheNamespace, listrRenderer } from '../flags'
 
 export default class Stop extends Command {
   static description = 'stop Eclipse Che Server'
 
   static flags = {
     help: flags.help({ char: 'h' }),
-    chenamespace: string({
-      char: 'n',
-      description: 'Kubernetes namespace where Che resources will be deployed',
-      default: 'che',
-      env: 'CHE_NAMESPACE'
-    }),
+    chenamespace: cheNamespace,
     'deployment-name': string({
       description: 'Che deployment name',
       default: 'che',
@@ -38,14 +31,8 @@ export default class Stop extends Command {
       default: 'app=che,component=che',
       env: 'CHE_SELECTOR'
     }),
-    'access-token': string({
-      description: 'Che OIDC Access Token',
-      env: 'CHE_ACCESS_TOKEN'
-    }),
-    'listr-renderer': string({
-      description: 'Listr renderer. Can be \'default\', \'silent\' or \'verbose\'',
-      default: 'default'
-    })
+    'access-token': accessToken,
+    'listr-renderer': listrRenderer
   }
 
   async run() {
@@ -70,12 +57,14 @@ export default class Stop extends Command {
           }
         }
       }
-    ], { renderer: flags['listr-renderer'] as any })
+    ],
+      { renderer: flags['listr-renderer'] as any }
+    )
 
-    tasks.add(cheTasks.checkIsCheIsInstalledTasks(this))
+    tasks.add(cheTasks.checkIfCheIsInstalledTasks(this))
     tasks.add([{
       title: 'Deployment Config doesn\'t exist',
-      enabled: (ctx: any) => (!ctx.cheDeploymentExist && !ctx.cheDeploymentConfigExist),
+      enabled: (ctx: any) => !ctx.isCheDeployed,
       task: async () => {
         await this.error(`E_BAD_DEPLOY - Deployment and DeploymentConfig do not exist.\nNeither a Deployment nor a DeploymentConfig named "${flags['deployment-name']}" exist in namespace \"${flags.chenamespace}\", Che Server cannot be stopped.\nFix with: verify the namespace where Che is running (oc get projects)\nhttps://github.com/eclipse/che`, { code: 'E_BAD_DEPLOY' })
       }
@@ -90,9 +79,10 @@ export default class Stop extends Command {
       enabled: (ctx: any) => (ctx.isNotReadyYet),
       task: async () => { }
     },
-
-    cheTasks.scaleCheDownTasks(this),
-    ], { renderer: flags['listr-renderer'] as any })
+      cheTasks.scaleCheDownTasks(this),
+    ],
+      { renderer: flags['listr-renderer'] as any }
+    )
 
     try {
       await tasks.run()

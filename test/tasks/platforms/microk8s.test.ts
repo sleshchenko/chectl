@@ -7,14 +7,13 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  **********************************************************************/
-// tslint:disable:object-curly-spacing
 import { expect, fancy } from 'fancy-test'
-import { MicroK8sHelper } from '../../src/platforms/microk8s';
+import { MicroK8sTasks } from '../../../src/tasks/platforms/microk8s';
 import * as execa from 'execa';
 
 jest.mock('execa');
 
-let mh = new MicroK8sHelper()
+let mh = new MicroK8sTasks()
 
 describe('start', () => {
   fancy
