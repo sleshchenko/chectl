@@ -27,18 +27,14 @@ import { MinikubeHelper } from '../../platforms/minikube'
 import { MinishiftHelper } from '../../platforms/minishift'
 import { OpenshiftHelper } from '../../platforms/openshift'
 import { CheTasks } from '../../tasks/che';
+import { FLAGS } from '../flags';
 
 export default class Start extends Command {
   static description = 'start Eclipse Che Server'
 
   static flags = {
     help: flags.help({ char: 'h' }),
-    chenamespace: string({
-      char: 'n',
-      description: 'Kubernetes namespace where Che resources will be deployed',
-      default: 'che',
-      env: 'CHE_NAMESPACE'
-    }),
+    chenamespace: FLAGS.CHE_NAMESPACE,
     'deployment-name': string({
       description: 'Che deployment name',
       default: 'che',
@@ -83,11 +79,7 @@ export default class Start extends Command {
       description: 'Listr renderer. Can be \'default\', \'silent\' or \'verbose\'',
       default: 'default'
     }),
-    multiuser: flags.boolean({
-      char: 'm',
-      description: 'Starts che in multi-user mode',
-      default: false
-    }),
+    multiuser: FLAGS,
     tls: flags.boolean({
       char: 's',
       description: 'Enable TLS encryption. Note that `che-tls` secret with TLS certificate must be created in the configured namespace.',
