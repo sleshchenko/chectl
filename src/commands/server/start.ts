@@ -177,8 +177,6 @@ export default class Start extends Command {
 
   async run() {
     const { flags } = this.parse(Start)
-    Start.setPlaformDefaults(flags)
-    this.checkPlatformCompatibility(flags)
 
     const listrOptions = ListrOptions.getTasksListrOptions(flags['listr-renderer'])
 
@@ -215,8 +213,12 @@ export default class Start extends Command {
 
     try {
       const ctx: any = {}
-      await platformCheckTasks.run(ctx)
       await preInstallTasks.run(ctx)
+    
+      Start.setPlaformDefaults(flags)
+      this.checkPlatformCompatibility(flags)
+
+      await platformCheckTasks.run(ctx)
       
       if (ctx.isCheDeployed && !ctx.isCheReady) {
         await startDeployedCheTasks.run(ctx)
