@@ -10,7 +10,7 @@
 
 import { Command, flags } from '@oclif/command'
 
-import { cheNamespace, listrRenderer } from '../flags'
+import { cheNamespace, listrRenderer } from '../../flags'
 
 export default class Update extends Command {
   static description = 'update Eclipse Che Server'

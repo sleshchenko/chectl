@@ -17,7 +17,7 @@ import * as os from 'os'
 import * as path from 'path'
 
 import { CheHelper } from '../../api/che'
-import { cheNamespace, listrRenderer } from '../flags'
+import { cheNamespace, listrRenderer } from '../../flags'
 
 export default class Inject extends Command {
   static description = 'inject configurations and tokens in a Che Workspace'

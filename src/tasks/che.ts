@@ -43,7 +43,7 @@ export class CheTasks {
   pluginRegistryDeploymentName = 'plugin-registry'
   pluginRegistrySelector = 'app=che,component=devfile-registry'
 
-  constructor(flags?: any) {
+  constructor(flags: any) {
     this.kube = new KubeHelper(flags)
     this.kubeTasks = new KubeTasks(flags)
     this.che = new CheHelper(flags)
@@ -56,8 +56,8 @@ export class CheTasks {
 
     this.cheAccessToken = flags['access-token']
 
-    this.cheNamespace = flags.cheNamespace
-    this.cheDeploymentName = flags['che-deployment-name']
+    this.cheNamespace = flags.chenamespace
+    this.cheDeploymentName = flags['deployment-name']
   }
 
   /**
@@ -66,26 +66,27 @@ export class CheTasks {
   waitDeployedChe(flags: any, command: Command): ReadonlyArray<Listr.ListrTask> {
     return [
       {
-        enabled: ctx => (flags.multiuser || ctx.postgresDeploymentExist),
+        enabled: ctx => ctx.isPorstgresDeployed,
         title: 'PostgreSQL pod bootstrap',
         task: () => this.kubeTasks.podStartTasks(command, this.postgresSelector, this.cheNamespace)
       },
       {
-        enabled: ctx => (flags.multiuser || ctx.keycloakDeploymentExist),
+        enabled: ctx => ctx.isKeycloakDeployed,
         title: 'Keycloak pod bootstrap',
         task: () => this.kubeTasks.podStartTasks(command, this.keycloakSelector, this.cheNamespace)
       },
       {
         title: 'Devfile registry pod bootstrap',
-        enabled: () => (!flags['devfile-registry-url'] && flags.installer !== 'minishift-addon'),
+        enabled: (ctx) => ctx.isDevfileRegisryDeployed && !ctx.isDevfileRegisryReady,
         task: () => this.kubeTasks.podStartTasks(command, this.devfileRegistrySelector, this.cheNamespace)
       },
       {
-        enabled: () => (!flags['plugin-registry-url'] && flags.installer !== 'minishift-addon'),
+        enabled: (ctx) => ctx.isPluginRegistryDeployed && !ctx.isPluginRegistryReady,
         title: 'Plugin registry pod bootstrap',
         task: () => this.kubeTasks.podStartTasks(command, this.pluginRegistrySelector, this.cheNamespace)
       },
       {
+        enabled: (ctx) => !ctx.isCheReady,
         title: 'Che pod bootstrap',
         task: () => this.kubeTasks.podStartTasks(command, this.cheSelector, this.cheNamespace)
       },
@@ -136,11 +137,14 @@ export class CheTasks {
             }
           } else if (await this.kube.deploymentExist(this.cheDeploymentName, this.cheNamespace)) {
             // helm chart and Che operator use a deployment
-            ctx.cheDeploymentExist = true
+            ctx.isCheDeployed = true
             ctx.isKeycloakDeployed = await this.kube.deploymentExist(this.keycloakDeploymentName, this.cheNamespace)
             ctx.isPorstgresDeployed = await this.kube.deploymentExist(this.postgresDeploymentName, this.cheNamespace)
             ctx.isDevfileRegistryDeployed = await this.kube.deploymentExist(this.devfileRegistryDeploymentName, this.cheNamespace)
+            ctx.isDevfileRegisryReady = true
             ctx.isPluginRegistryDeployed = await this.kube.deploymentExist(this.pluginRegistryDeploymentName, this.cheNamespace)
+            // TODO check if every component is ready
+            ctx.isPluginRegistryReady = true
             if (ctx.isKeycloakDeployed && ctx.isPorstgresDeployed) {
               task.title = await `${task.title}...it does (as well as keycloak and postgres)`
             } else {
@@ -153,7 +157,7 @@ export class CheTasks {
       },
       {
         title: `Verify if Che server pod is running (selector "${this.cheSelector}")`,
-        enabled: (ctx: any) => (ctx.cheDeploymentExist || ctx.cheDeploymentConfigExist),
+        enabled: (ctx: any) => ctx.isCheDeployed,
         task: async (ctx: any, task: any) => {
           const cheServerPodExist = await this.kube.podsExistBySelector(this.cheSelector, this.cheNamespace)
           if (!cheServerPodExist) {
@@ -163,8 +167,9 @@ export class CheTasks {
             const cheServerPodReadyStatus = await this.kube.getPodReadyConditionStatus(this.cheSelector, this.cheNamespace)
             if (cheServerPodReadyStatus !== 'True') {
               task.title = `${task.title}...It doesn't`
-              ctx.isNotReadyYet = true
+              ctx.isCheReady = false
             } else {
+              ctx.isCheReady = true
               task.title = `${task.title}...it does.`
             }
           }
@@ -196,7 +201,7 @@ export class CheTasks {
    *
    * @see [CheTasks](#checkIfCheIsInstalledTasks)
    */
-  scaleCheDownTasks(command: Command) {
+  scaleCheDownTasks(command: Command): ReadonlyArray<Listr.ListrTask> {
     return [{
       title: 'Stop Che server and wait until it\'s ready to shutdown',
       enabled: (ctx: any) => !ctx.isStopped && !ctx.isNotReadyYet,
@@ -215,7 +220,7 @@ export class CheTasks {
       }
     },
     {
-      title: `Scale  \"${this.cheDeploymentName}\"  deployment to zero`,
+      title: `Scale \"${this.cheDeploymentName}\" deployment to zero`,
       enabled: (ctx: any) => !ctx.isStopped,
       task: async (ctx: any, task: any) => {
         try {
@@ -234,12 +239,12 @@ export class CheTasks {
       title: 'Wait until Che pod is deleted',
       enabled: (ctx: any) => !ctx.isStopped,
       task: async (_ctx: any, task: any) => {
-        await this.kube.waitUntilPodIsDeleted('app=che', this.cheNamespace)
+        await this.kube.waitUntilPodIsDeleted(this.cheSelector, this.cheNamespace)
         task.title = `${task.title}...done.`
       }
     },
     {
-      title: 'Scale  \"keycloak\"  deployment to zero',
+      title: 'Scale \"keycloak\" deployment to zero',
       enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
       task: async (ctx: any, task: any) => {
         try {
@@ -263,7 +268,7 @@ export class CheTasks {
       }
     },
     {
-      title: 'Scale  \"postgres\"  deployment to zero',
+      title: 'Scale \"postgres\" deployment to zero',
       enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
       task: async (ctx: any, task: any) => {
         try {
@@ -287,7 +292,7 @@ export class CheTasks {
       }
     },
     {
-      title: 'Scale  \"devfile registry\"  deployment to zero',
+      title: 'Scale \"devfile registry\" deployment to zero',
       enabled: (ctx: any) => ctx.foundDevfileRegistryDeployment,
       task: async (ctx: any, task: any) => {
         try {
@@ -311,7 +316,7 @@ export class CheTasks {
       }
     },
     {
-      title: 'Scale  \"plugin registry\"  deployment to zero',
+      title: 'Scale \"plugin registry\" deployment to zero',
       enabled: (ctx: any) => ctx.foundPluginRegistryDeployment,
       task: async (ctx: any, task: any) => {
         try {

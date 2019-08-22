@@ -19,8 +19,8 @@ import { CheTasks } from '../../tasks/che'
 import { InstallerTasks } from '../../tasks/installers/installer'
 import { K8sTasks } from '../../tasks/platforms/k8s'
 import { PlatformTasks } from '../../tasks/platforms/platform'
-import { cheDeployment, cheNamespace, listrRenderer } from '../flags'
-import { ListrOptions } from '../listr-options'
+import { cheDeployment, cheNamespace, listrRenderer } from '../../flags'
+import { ListrOptions } from '../../../types/listr-options'
 
 export default class Start extends Command {
   static description = 'start Eclipse Che Server'
@@ -208,27 +208,24 @@ export default class Start extends Command {
     }], listrOptions)
 
     // Post Install Checks
-    let postInstallSubTasks = new Listr()
     const postInstallTasks = new Listr([{
       title: '✅  Post installation checklist',
-      task: () => postInstallSubTasks
+      task: () => new Listr(cheTasks.waitDeployedChe(flags, this))
     }], listrOptions)
-
-    postInstallSubTasks.add(cheTasks.waitDeployedChe(flags, this))
 
     try {
       const ctx: any = {}
       await platformCheckTasks.run(ctx)
       await preInstallTasks.run(ctx)
-      if (ctx.isCheDeployed) {
+      
+      if (ctx.isCheDeployed && !ctx.isCheReady) {
         await startDeployedCheTasks.run(ctx)
       }
       if (!ctx.isCheDeployed) {
         await installTasks.run(ctx)
       }
-      if (!ctx.cheIsAlreadyRunning) {
-        await postInstallTasks.run(ctx)
-      }
+      
+      await postInstallTasks.run(ctx)
       this.log('Command server:start has completed successfully.')
     } catch (err) {
       this.error(err)

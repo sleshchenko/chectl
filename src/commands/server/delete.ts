@@ -15,7 +15,7 @@ import { HelmTasks } from '../../tasks/installers/helm'
 import { MinishiftAddonTasks } from '../../tasks/installers/minishift-addon'
 import { OperatorTasks } from '../../tasks/installers/operator'
 import { K8sTasks } from '../../tasks/platforms/k8s'
-import { cheNamespace, listrRenderer } from '../flags'
+import { cheNamespace, listrRenderer } from '../../flags'
 
 export default class Delete extends Command {
   static description = 'delete any Che related resource: Kubernetes/OpenShift/Helm'
@@ -35,17 +35,17 @@ export default class Delete extends Command {
     const helmTasks = new HelmTasks()
     const msAddonTasks = new MinishiftAddonTasks()
     const operatorTasks = new OperatorTasks()
-    const cheTasks = new CheTasks()
+    const cheTasks = new CheTasks(flags)
 
-    let tasks = new Listrq([
-      k8sTasks.testApiTasks(flags, this),
-      operatorTasks.deleteTasks(flags),
-      cheTasks.deleteTasks(flags),
-      helmTasks.deleteTasks(flags),
-      msAddonTasks.deleteTasks(flags),
-    ],
+    let tasks = new Listrq(undefined,
       { renderer: flags['listr-renderer'] as any }
     )
+
+    tasks.add(k8sTasks.testApiTasks(flags, this))
+    tasks.add(operatorTasks.deleteTasks(flags))
+    tasks.add(cheTasks.deleteTasks(flags))
+    tasks.add(helmTasks.deleteTasks(flags))
+    tasks.add(msAddonTasks.deleteTasks(flags))
 
     await tasks.run()
 

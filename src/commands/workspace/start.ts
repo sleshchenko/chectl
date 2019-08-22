@@ -13,7 +13,7 @@ import { string } from '@oclif/parser/lib/flags'
 import { cli } from 'cli-ux'
 
 import { CheHelper } from '../../api/che'
-import { accessToken, cheNamespace, listrRenderer } from '../flags'
+import { accessToken, cheNamespace, listrRenderer } from '../../flags'
 
 export default class Start extends Command {
   static description = 'create and start a Che workspace'

@@ -13,7 +13,7 @@ import { string } from '@oclif/parser/lib/flags'
 
 import { KubeHelper } from '../../api/kube'
 import { CheTasks } from '../../tasks/che'
-import { accessToken, cheDeployment, cheNamespace, listrRenderer } from '../flags'
+import { accessToken, cheDeployment, cheNamespace, listrRenderer } from '../../flags'
 
 export default class Stop extends Command {
   static description = 'stop Eclipse Che Server'
@@ -58,7 +58,8 @@ export default class Stop extends Command {
     )
 
     tasks.add(cheTasks.checkIfCheIsInstalledTasks(this))
-    tasks.add([{
+    tasks.add([
+    {
       title: 'Deployment Config doesn\'t exist',
       enabled: (ctx: any) => !ctx.isCheDeployed,
       task: async () => {
@@ -74,11 +75,11 @@ export default class Stop extends Command {
       title: 'Che server Pod is not ready. It may be failing to start. Skipping shutdown request',
       enabled: (ctx: any) => (ctx.isNotReadyYet),
       task: async () => { }
-    },
-      cheTasks.scaleCheDownTasks(this),
+    }
     ],
       { renderer: flags['listr-renderer'] as any }
     )
+    tasks.add(cheTasks.scaleCheDownTasks(this))
 
     try {
       await tasks.run()

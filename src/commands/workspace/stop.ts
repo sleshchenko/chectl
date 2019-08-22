@@ -10,7 +10,7 @@
 
 import { Command, flags } from '@oclif/command'
 
-import { accessToken, cheNamespace, listrRenderer } from '../flags'
+import { accessToken, cheNamespace, listrRenderer } from '../../flags'
 
 export default class Stop extends Command {
   static description = 'stop a running Che workspace'
