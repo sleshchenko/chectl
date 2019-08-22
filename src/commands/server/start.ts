@@ -16,16 +16,11 @@ import * as notifier from 'node-notifier'
 import * as path from 'path'
 
 import { CheTasks } from '../../tasks/che'
-import { HelmTasks } from '../../tasks/installers/helm'
-import { MinishiftAddonTasks } from '../../tasks/installers/minishift-addon'
-import { OperatorTasks } from '../../tasks/installers/operator'
-import { DockerDesktopTasks } from '../../tasks/platforms/docker-desktop'
+import { InstallerTasks } from '../../tasks/installers/installer'
 import { K8sTasks } from '../../tasks/platforms/k8s'
-import { MicroK8sTasks } from '../../tasks/platforms/microk8s'
-import { MinikubeTasks } from '../../tasks/platforms/minikube'
-import { MinishiftTasks } from '../../tasks/platforms/minishift'
-import { OpenshiftTasks } from '../../tasks/platforms/openshift'
-import { cheNamespace, listrRenderer } from '../flags'
+import { PlatformTasks } from '../../tasks/platforms/platform'
+import { cheDeployment, cheNamespace, listrRenderer } from '../flags'
+import { ListrOptions } from '../listr-options'
 
 export default class Start extends Command {
   static description = 'start Eclipse Che Server'
@@ -34,11 +29,7 @@ export default class Start extends Command {
     help: flags.help({ char: 'h' }),
     chenamespace: cheNamespace,
     'listr-renderer': listrRenderer,
-    'deployment-name': string({
-      description: 'Che deployment name',
-      default: 'che',
-      env: 'CHE_DEPLOYMENT'
-    }),
+    'deployment-name': cheDeployment,
     cheimage: string({
       char: 'i',
       description: 'Che server container image',
@@ -187,117 +178,41 @@ export default class Start extends Command {
   async run() {
     const { flags } = this.parse(Start)
     Start.setPlaformDefaults(flags)
-
-    const minikubeTasks = new MinikubeTasks()
-    const microk8sTasks = new MicroK8sTasks()
-    const minishiftTasks = new MinishiftTasks()
-    const openshiftTasks = new OpenshiftTasks()
-    const k8sTasks = new K8sTasks()
-    const dockerDesktopTasks = new DockerDesktopTasks(flags)
-    const operatorTasks = new OperatorTasks()
-    const minishiftAddonTasks = new MinishiftAddonTasks()
-    const cheTasks = new CheTasks(flags)
-    const helmTasks = new HelmTasks()
-
     this.checkPlatformCompatibility(flags)
 
+    const listrOptions = ListrOptions.getTasksListrOptions(flags['listr-renderer'])
+
+    const cheTasks = new CheTasks(flags)
+    const platformTasks = new PlatformTasks()
+    const installerTasks = new InstallerTasks()
+    const k8sTasks = new K8sTasks()
+
     // Platform Checks
-    let platformCheckTasks = new Listr(undefined, { renderer: flags['listr-renderer'] as any, collapse: false })
-
-    if (flags.platform === 'minikube') {
-      platformCheckTasks.add({
-        title: '✈️  Minikube preflight checklist',
-        task: () => minikubeTasks.startTasks(flags, this)
-      })
-    } else if (flags.platform === 'minishift') {
-      platformCheckTasks.add({
-        title: '✈️  Minishift preflight checklist',
-        task: () => minishiftTasks.startTasks(flags, this)
-      })
-    } else if (flags.platform === 'microk8s') {
-      platformCheckTasks.add({
-        title: '✈️  MicroK8s preflight checklist',
-        task: () => microk8sTasks.startTasks(flags, this)
-      })
-    } else if (flags.platform === 'openshift') {
-      platformCheckTasks.add({
-        title: '✈️  Openshift preflight checklist',
-        task: () => openshiftTasks.startTasks(flags, this)
-      })
-    } else if (flags.platform === 'k8s') {
-      platformCheckTasks.add({
-        title: '✈️  Kubernetes preflight checklist',
-        task: () => k8sTasks.startTasks(flags, this)
-      })
-    } else if (flags.platform === 'docker-desktop') {
-      platformCheckTasks.add({
-        title: '✈️  Docker Desktop preflight checklist',
-        task: () => dockerDesktopTasks.startTasks(flags, this)
-      })
-    } else {
-      this.error(`Platformm ${flags.platform} is not supported yet ¯\\_(ツ)_/¯`)
-      this.exit()
-    }
-
-    // Installer
-    let installerTasks = new Listr({ renderer: flags['listr-renderer'] as any, collapse: false })
-    if (flags.installer === 'helm') {
-      installerTasks.add({
-        title: '🏃‍  Running Helm to install Che',
-        task: () => helmTasks.startTasks(flags, this)
-      })
-    } else if (flags.installer === 'operator') {
-      // The operator installs Che multiuser only
-      if (!flags.multiuser) {
-        this.warn("Che will be deployed in Multi-User mode since Configured 'operator' installer which support only such.")
-        flags.multiuser = true
-      }
-      // Installers use distinct ingress names
-      installerTasks.add({
-        title: '🏃‍  Running the Che Operator',
-        task: () => operatorTasks.startTasks(flags, this)
-      })
-    } else if (flags.installer === 'minishift-addon') {
-      // minishift-addon supports Che singleuser only
-      flags.multiuser = false
-      // Installers use distinct ingress names
-      installerTasks.add({
-        title: '🏃‍  Running the Che minishift-addon',
-        task: () => minishiftAddonTasks.startTasks(flags, this)
-      })
-    } else {
-      this.error(`Installer ${flags.installer} is not supported ¯\\_(ツ)_/¯`)
-      this.exit()
-    }
+    let platformCheckTasks = new Listr(platformTasks.preflightCheckTasks(flags, this), listrOptions)
+    // TODO Maybe set isOpenShift in {@code platformTasks.preflightCheckTasks}
+    platformCheckTasks.add(k8sTasks.testApiTasks(flags, this))
 
     // Checks if Che is already deployed
     const preInstallTasks = new Listr([{
       title: '👀  Looking for an already existing Che instance',
       task: () => new Listr(cheTasks.checkIfCheIsInstalledTasks(this))
     }],
-      {
-        renderer: flags['listr-renderer'] as any,
-        collapse: false
-      }
+      listrOptions
     )
+
+    let installTasks = new Listr(installerTasks.installTasks(flags, this), listrOptions)
 
     const startDeployedCheTasks = new Listr([{
       title: '👀  Starting already deployed Che',
       task: () => new Listr(cheTasks.scaleCheUpTasks(this))
-    }], {
-      renderer: flags['listr-renderer'] as any,
-      collapse: false
-    })
+    }], listrOptions)
 
     // Post Install Checks
     let postInstallSubTasks = new Listr()
     const postInstallTasks = new Listr([{
       title: '✅  Post installation checklist',
       task: () => postInstallSubTasks
-    }], {
-      renderer: flags['listr-renderer'] as any,
-      collapse: false
-    })
+    }], listrOptions)
 
     postInstallSubTasks.add(cheTasks.waitDeployedChe(flags, this))
 
@@ -308,8 +223,8 @@ export default class Start extends Command {
       if (ctx.isCheDeployed) {
         await startDeployedCheTasks.run(ctx)
       }
-      if (!ctx.cheIsAlreadyRunning && !ctx.cheDeploymentExist) {
-        await installerTasks.run(ctx)
+      if (!ctx.isCheDeployed) {
+        await installTasks.run(ctx)
       }
       if (!ctx.cheIsAlreadyRunning) {
         await postInstallTasks.run(ctx)

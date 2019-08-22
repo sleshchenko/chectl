@@ -13,7 +13,7 @@ import { string } from '@oclif/parser/lib/flags'
 
 import { KubeHelper } from '../../api/kube'
 import { CheTasks } from '../../tasks/che'
-import { accessToken, cheNamespace, listrRenderer } from '../flags'
+import { accessToken, cheDeployment, cheNamespace, listrRenderer } from '../flags'
 
 export default class Stop extends Command {
   static description = 'stop Eclipse Che Server'
@@ -21,11 +21,7 @@ export default class Stop extends Command {
   static flags = {
     help: flags.help({ char: 'h' }),
     chenamespace: cheNamespace,
-    'deployment-name': string({
-      description: 'Che deployment name',
-      default: 'che',
-      env: 'CHE_DEPLOYMENT'
-    }),
+    'deployment-name': cheDeployment,
     'che-selector': string({
       description: 'Selector for Che Server resources',
       default: 'app=che,component=che',

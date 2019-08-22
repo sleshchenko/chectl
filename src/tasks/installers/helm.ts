@@ -216,14 +216,17 @@ error: E_COMMAND_FAILED`)
     await execa.shell(`helm dependencies update --skip-refresh ${destDir}`, { timeout: execTimeout })
   }
 
-  private async upgradeCheHelmChart(_ctx: any, flags: any, cacheDir: string, execTimeout = 120000) {
+  private async upgradeCheHelmChart(ctx: any, flags: any, cacheDir: string, execTimeout = 120000) {
     const destDir = path.join(cacheDir, '/templates/kubernetes/helm/che/')
 
     let multiUserFlag = ''
     let tlsFlag = ''
     let setOptions = []
 
+    ctx.isCheDeployed = true
     if (flags.multiuser) {
+      ctx.isPostgresDeployed = true
+      ctx.isKeaycloakDeployed = true
       multiUserFlag = `-f ${destDir}values/multi-user.yaml`
     }
 
@@ -238,10 +241,14 @@ error: E_COMMAND_FAILED`)
 
     if (flags['plugin-registry-url']) {
       setOptions.push(`--set che.workspace.pluginRegistryUrl=${flags['plugin-registry-url']} --set chePluginRegistry.deploy=false`)
+    } else {
+      ctx.isPluginRegistryDeployed = true
     }
 
     if (flags['devfile-registry-url']) {
       setOptions.push(`--set che.workspace.devfileRegistryUrl=${flags['devfile-registry-url']} --set cheDevfileRegistry.deploy=false`)
+    } else {
+      ctx.isDevfileRegistryDeployed = true
     }
 
     setOptions.push(`--set global.ingressDomain=${flags.domain}`)

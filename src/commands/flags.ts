@@ -16,6 +16,12 @@ export const cheNamespace = string({
   env: 'CHE_NAMESPACE'
 })
 
+export const cheDeployment = string({
+  description: 'Che deployment name',
+  default: 'che',
+  env: 'CHE_DEPLOYMENT'
+})
+
 export const listrRenderer = string({
   description: 'Listr renderer',
   options: ['default', 'silent', 'verbose'],
