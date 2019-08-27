@@ -13,6 +13,7 @@ import * as Listr from 'listr'
 import { CheHelper } from '../api/che'
 import { KubeHelper } from '../api/kube'
 import { OpenShiftHelper } from '../api/openshift'
+import { CheContext } from '../../types/che-context'
 
 import { KubeTasks } from './kube'
 
@@ -122,14 +123,14 @@ export class CheTasks {
     return [
       {
         title: `Verify if deployment \"${this.cheDeploymentName}\" exists in namespace \"${this.cheNamespace}\"`,
-        task: async (ctx: any, task: any) => {
+        task: async (ctx: CheContext.CheContext, task: any) => {
           if (ctx.isOpenShift && await this.oc.deploymentConfigExist(this.cheDeploymentName, this.cheNamespace)) {
             // minishift addon and the openshift templates use a deployment config
-            ctx.isCheDeployed = true
-            ctx.isKeycloakDeployed = await this.oc.deploymentConfigExist(this.keycloakDeploymentName, this.cheNamespace)
-            ctx.isPorstgresDeployed = await this.oc.deploymentConfigExist(this.postgresDeploymentName, this.cheNamespace)
-            ctx.isDevfileRegistryDeployed = await this.oc.deploymentConfigExist(this.devfileRegistryDeploymentName, this.cheNamespace)
-            ctx.isPluginRegistryDeployed = await this.oc.deploymentConfigExist(this.pluginRegistryDeploymentName, this.cheNamespace)
+            ctx.status.cheServer.isDeployed = true
+            ctx.status.keycloak.isDeployed = await this.oc.deploymentConfigExist(this.keycloakDeploymentName, this.cheNamespace)
+            ctx.status.postgres.isDeployed = await this.oc.deploymentConfigExist(this.postgresDeploymentName, this.cheNamespace)
+            ctx.status.devfileRegistry.isDeployed = await this.oc.deploymentConfigExist(this.devfileRegistryDeploymentName, this.cheNamespace)
+            ctx.status.pluginRegistry.isDeployed = await this.oc.deploymentConfigExist(this.pluginRegistryDeploymentName, this.cheNamespace)
             if (ctx.isKeycloakDeployed && ctx.isPorstgresDeployed) {
               task.title = await `${task.title}...the dc "${this.cheDeploymentName}" exists (as well as keycloak and postgres)`
             } else {
@@ -157,8 +158,8 @@ export class CheTasks {
       },
       {
         title: `Verify if Che server pod is running (selector "${this.cheSelector}")`,
-        enabled: (ctx: any) => ctx.isCheDeployed,
-        task: async (ctx: any, task: any) => {
+        enabled: (ctx: CheContext.CheContext) => ctx.isCheDeployed,
+        task: async (ctx: CheContext.CheContext, task: any) => {
           const cheServerPodExist = await this.kube.podsExistBySelector(this.cheSelector, this.cheNamespace)
           if (!cheServerPodExist) {
             task.title = `${task.title}...It doesn't`
@@ -177,8 +178,8 @@ export class CheTasks {
       },
       {
         title: 'Check Che server status',
-        enabled: (ctx: any) => ctx.isCheDeployed && !ctx.isStopped && !ctx.isNotReadyYet,
-        task: async (ctx: any, task: any) => {
+        enabled: (ctx: CheContext.CheContext) => ctx.isCheDeployed && !ctx.isStopped && !ctx.isNotReadyYet,
+        task: async (ctx: CheContext.CheContext, task: any) => {
           let cheURL = ''
           try {
             cheURL = await this.che.cheURL(this.cheNamespace)
@@ -204,8 +205,8 @@ export class CheTasks {
   scaleCheDownTasks(command: Command): ReadonlyArray<Listr.ListrTask> {
     return [{
       title: 'Stop Che server and wait until it\'s ready to shutdown',
-      enabled: (ctx: any) => !ctx.isStopped && !ctx.isNotReadyYet,
-      task: async (ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => !ctx.isStopped && !ctx.isNotReadyYet,
+      task: async (ctx: CheContext.CheContext, task: any) => {
         if (ctx.isAuthEnabled && !this.cheAccessToken) {
           command.error('E_AUTH_REQUIRED - Che authentication is enabled and an access token need to be provided (flag --access-token).\nFor instructions to retreive a valid access token refer to https://www.eclipse.org/che/docs/che-6/authentication.html')
         }
@@ -221,8 +222,8 @@ export class CheTasks {
     },
     {
       title: `Scale \"${this.cheDeploymentName}\" deployment to zero`,
-      enabled: (ctx: any) => !ctx.isStopped,
-      task: async (ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => !ctx.isStopped,
+      task: async (ctx: CheContext.CheContext, task: any) => {
         try {
           if (ctx.cheDeploymentConfigExist) {
             await this.oc.scaleDeploymentConfig(this.cheDeploymentName, this.cheNamespace, 0)
@@ -237,16 +238,16 @@ export class CheTasks {
     },
     {
       title: 'Wait until Che pod is deleted',
-      enabled: (ctx: any) => !ctx.isStopped,
-      task: async (_ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => !ctx.isStopped,
+      task: async (_ctx: CheContext.CheContext, task: any) => {
         await this.kube.waitUntilPodIsDeleted(this.cheSelector, this.cheNamespace)
         task.title = `${task.title}...done.`
       }
     },
     {
       title: 'Scale \"keycloak\" deployment to zero',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => !ctx.isStopped && ctx.keycloakDeploymentExist,
+      task: async (ctx: CheContext.CheContext, task: any) => {
         try {
           if (ctx.cheDeploymentConfigExist) {
             await this.oc.scaleDeploymentConfig('keycloak', this.cheNamespace, 0)
@@ -261,16 +262,16 @@ export class CheTasks {
     },
     {
       title: 'Wait until Keycloak pod is deleted',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (_ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => !ctx.isStopped && ctx.keycloakDeploymentExist,
+      task: async (_ctx: CheContext.CheContext, task: any) => {
         await this.kube.waitUntilPodIsDeleted('app=keycloak', this.cheNamespace)
         task.title = `${task.title}...done.`
       }
     },
     {
       title: 'Scale \"postgres\" deployment to zero',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => !ctx.isStopped && ctx.keycloakDeploymentExist,
+      task: async (ctx: CheContext.CheContext, task: any) => {
         try {
           if (ctx.cheDeploymentConfigExist) {
             await this.oc.scaleDeploymentConfig('postgres', this.cheNamespace, 0)
@@ -285,16 +286,16 @@ export class CheTasks {
     },
     {
       title: 'Wait until Postgres pod is deleted',
-      enabled: (ctx: any) => !ctx.isStopped && ctx.keycloakDeploymentExist,
-      task: async (_ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => !ctx.isStopped && ctx.keycloakDeploymentExist,
+      task: async (_ctx: CheContext.CheContext, task: any) => {
         await this.kube.waitUntilPodIsDeleted('app=postgres', this.cheNamespace)
         task.title = `${task.title}...done.`
       }
     },
     {
       title: 'Scale \"devfile registry\" deployment to zero',
-      enabled: (ctx: any) => ctx.foundDevfileRegistryDeployment,
-      task: async (ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => ctx.foundDevfileRegistryDeployment,
+      task: async (ctx: CheContext.CheContext, task: any) => {
         try {
           if (ctx.deploymentConfigExist) {
             await this.oc.scaleDeploymentConfig('devfile-registry', this.cheNamespace, 0)
@@ -309,16 +310,16 @@ export class CheTasks {
     },
     {
       title: 'Wait until Devfile registry pod is deleted',
-      enabled: (ctx: any) => ctx.foundDevfileRegistryDeployment,
-      task: async (_ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => ctx.foundDevfileRegistryDeployment,
+      task: async (_ctx: CheContext.CheContext, task: any) => {
         await this.kube.waitUntilPodIsDeleted('app=che,component=devfile-registry', this.cheNamespace)
         task.title = `${task.title}...done.`
       }
     },
     {
       title: 'Scale \"plugin registry\" deployment to zero',
-      enabled: (ctx: any) => ctx.foundPluginRegistryDeployment,
-      task: async (ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => ctx.foundPluginRegistryDeployment,
+      task: async (ctx: CheContext.CheContext, task: any) => {
         try {
           if (ctx.deploymentConfigExist) {
             await this.oc.scaleDeploymentConfig('plugin-registry', this.cheNamespace, 0)
@@ -333,8 +334,8 @@ export class CheTasks {
     },
     {
       title: 'Wait until Plugin registry pod is deleted',
-      enabled: (ctx: any) => ctx.foundPluginRegistryDeployment,
-      task: async (_ctx: any, task: any) => {
+      enabled: (ctx: CheContext.CheContext) => ctx.foundPluginRegistryDeployment,
+      task: async (_ctx: CheContext.CheContext, task: any) => {
         await this.kube.waitUntilPodIsDeleted('app=che,component=plugin-registry', this.cheNamespace)
         task.title = `${task.title}...done.`
       }

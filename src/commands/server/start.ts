@@ -21,6 +21,7 @@ import { K8sTasks } from '../../tasks/platforms/k8s'
 import { PlatformTasks } from '../../tasks/platforms/platform'
 import { cheDeployment, cheNamespace, listrRenderer } from '../../flags'
 import { ListrOptions } from '../../../types/listr-options'
+import { CheContext, initCtx } from '../../../types/che-context'
 
 export default class Start extends Command {
   static description = 'start Eclipse Che Server'
@@ -212,7 +213,8 @@ export default class Start extends Command {
     }], listrOptions)
 
     try {
-      const ctx: any = {}
+      const ctx: CheContext.CheContext  = initCtx
+      
       await preInstallTasks.run(ctx)
     
       Start.setPlaformDefaults(flags)
