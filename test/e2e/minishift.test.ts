@@ -27,13 +27,15 @@ minishift delete --profile ${PROFILE}
 */
 
 describe('e2e test', () => {
-  describe('server:start without parameters', () => {
+  describe('server:start without parameters, stop and recover it', () => {
     test
       .stdout()
       .command(['server:start', '--platform=minishift', '--listr-renderer=verbose'])
       .exit(0)
       .it('uses minishift as platform, minishift-addon as installer and auth is disabled', ctx => {
-        expect(ctx.stdout).to.contain('Minishift preflight checklist')
+        expect(ctx.stdout).to.contain('Verify Kubernetes API...OK (it\'s OpenShift)')
+          .and.to.contain('Looking for an already existing Che instance')
+          .and.to.contain('Minishift preflight checklist')
           .and.to.contain('Running the Che minishift-addon')
           .and.to.contain('Post installation checklist')
           .and.to.contain('Command server:start has completed successfully')
@@ -44,12 +46,25 @@ describe('e2e test', () => {
       .exit(0)
       .it('stops Server on minishift successfully')
     test
+      .skip()
+      .stdout()
+      .command(['server:start', '--listr-renderer=verbose'])
+      .exit(0)
+      .it('Che deployment is found and scaled up', ctx => {
+        expect(ctx.stdout).to.contain('Verify Kubernetes API...OK (it\'s OpenShift)')
+          .and.to.contain('Looking for an already existing Che instance')
+          .and.to.contain('Starting already deployed Che')
+          .and.to.contain('Post installation checklist')
+          .and.to.contain('Command server:start has completed successfully')
+      })
+    test
       .stdout()
       .command(['server:delete', '--listr-renderer=verbose'])
       .exit(0)
       .it('deletes Che resources on minishift successfully')
   })
-  describe('server:start mulituser', () => {
+
+  describe('server:start mulituser, stop and recover it', () => {
     test
       .stdout()
       .command(['server:start', '--platform=minishift', '--listr-renderer=verbose', '--multiuser'])
@@ -74,6 +89,22 @@ describe('e2e test', () => {
       .command(['server:stop', '--listr-renderer=verbose'])
       .exit(0)
       .it('stops Server on Minishift successfully')
+    test
+      .skip()
+      .stdout()
+      .command(['server:start'])
+      .exit(0)
+      .it('Found che deployments are scaled up', ctx => {
+        expect(ctx.stdout).to.contain('Verify Kubernetes API...OK (it\'s OpenShift)')
+          .and.to.contain('Found running che deployment')
+          .and.to.contain('Found running postgres deployment')
+          .and.to.contain('Found running keycloak deployment')
+          .and.to.contain('Found running plugin registry deployment')
+          .and.to.contain('Found running devfile registry deployment')
+          .and.to.contain('Scaling up Che Deployments...done')
+          .and.to.contain('Post installation checklist')
+          .and.to.contain('Command server:start has completed successfully')
+      })
     test
       .skip()
       .stdout()
