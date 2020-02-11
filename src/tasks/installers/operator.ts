@@ -64,10 +64,11 @@ export class OperatorTasks {
         title: `Create ServiceAccount ${this.operatorServiceAccount} in namespace ${flags.chenamespace}`,
         task: async (_ctx: any, task: any) => {
           const exist = await kube.serviceAccountExist(this.operatorServiceAccount, flags.chenamespace)
+          const yamlFilePath = this.resourcesPath + 'service_account.yaml'
           if (exist) {
-            task.title = `${task.title}...It already exists.`
+            await kube.replaceServiceAccountFromFile(yamlFilePath, flags.chenamespace)
+            task.title = `${task.title}...updated existing one.`
           } else {
-            const yamlFilePath = this.resourcesPath + 'service_account.yaml'
             await kube.createServiceAccountFromFile(yamlFilePath, flags.chenamespace)
             task.title = `${task.title}...done.`
           }
@@ -77,10 +78,14 @@ export class OperatorTasks {
         title: `Create Role ${this.operatorRole} in namespace ${flags.chenamespace}`,
         task: async (_ctx: any, task: any) => {
           const exist = await kube.roleExist(this.operatorRole, flags.chenamespace)
-          if (exist) {
-            task.title = `${task.title}...It already exists.`
+          const yamlFilePath = this.resourcesPath + 'role.yaml'
+            if (exist) {
+            const statusCode = await kube.replaceRoleFromFile(yamlFilePath, flags.chenamespace)
+            if (statusCode === 403) {
+              command.error('ERROR: It looks like you don\'t have enough privileges. You need to grant more privileges to current user or use a different user. If you are using minishift you can "oc login -u system:admin"')
+            }
+            task.title = `${task.title}...updated existing one.`
           } else {
-            const yamlFilePath = this.resourcesPath + 'role.yaml'
             const statusCode = await kube.createRoleFromFile(yamlFilePath, flags.chenamespace)
             if (statusCode === 403) {
               command.error('ERROR: It looks like you don\'t have enough privileges. You need to grant more privileges to current user or use a different user. If you are using minishift you can "oc login -u system:admin"')
@@ -93,10 +98,14 @@ export class OperatorTasks {
         title: `Create ClusterRole ${this.operatorClusterRole}`,
         task: async (_ctx: any, task: any) => {
           const exist = await kube.clusterRoleExist(this.operatorClusterRole)
+          const yamlFilePath = this.resourcesPath + 'cluster_role.yaml'
           if (exist) {
-            task.title = `${task.title}...It already exists.`
+            const statusCode = await kube.replaceClusterRoleFromFile(yamlFilePath)
+            if (statusCode === 403) {
+              command.error('ERROR: It looks like you don\'t have enough privileges. You need to grant more privileges to current user or use a different user. If you are using minishift you can "oc login -u system:admin"')
+            }
+            task.title = `${task.title}...updated existing one.`
           } else {
-            const yamlFilePath = this.resourcesPath + 'cluster_role.yaml'
             const statusCode = await kube.createClusterRoleFromFile(yamlFilePath)
             if (statusCode === 403) {
               command.error('ERROR: It looks like you don\'t have enough privileges. You need to grant more privileges to current user or use a different user. If you are using minishift you can "oc login -u system:admin"')
@@ -109,10 +118,11 @@ export class OperatorTasks {
         title: `Create RoleBinding ${this.operatorRoleBinding} in namespace ${flags.chenamespace}`,
         task: async (_ctx: any, task: any) => {
           const exist = await kube.roleBindingExist(this.operatorRoleBinding, flags.chenamespace)
+          const yamlFilePath = this.resourcesPath + 'role_binding.yaml'
           if (exist) {
-            task.title = `${task.title}...It already exists.`
+            await kube.replaceRoleBindingFromFile(yamlFilePath, flags.chenamespace)
+            task.title = `${task.title}...updated existing one.`
           } else {
-            const yamlFilePath = this.resourcesPath + 'role_binding.yaml'
             await kube.createRoleBindingFromFile(yamlFilePath, flags.chenamespace)
             task.title = `${task.title}...done.`
           }
@@ -123,7 +133,8 @@ export class OperatorTasks {
         task: async (_ctx: any, task: any) => {
           const exist = await kube.clusterRoleBindingExist(this.operatorRoleBinding)
           if (exist) {
-            task.title = `${task.title}...It already exists.`
+            await kube.replaceClusterRoleBinding(this.operatorClusterRoleBinding, this.operatorServiceAccount, flags.chenamespace, this.operatorClusterRole)
+            task.title = `${task.title}...updated existing one.`
           } else {
             await kube.createClusterRoleBinding(this.operatorClusterRoleBinding, this.operatorServiceAccount, flags.chenamespace, this.operatorClusterRole)
             task.title = `${task.title}...done.`
